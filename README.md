@@ -2,6 +2,13 @@
 
 White-label booking platforma za recording studije, izgrađena kao TypeScript monorepo za Cloudflare.
 
+## Produkcija
+
+- Web: https://studio-cener-2.pages.dev
+- API health: https://studio-cener-2.pages.dev/api/health
+
+Cloudflare Pages Functions prosljeđuje `/api/*` na Worker unutar istog javnog origina kako bi Better Auth session cookie radio bez cross-site ograničenja preglednika. Produkcija koristi zasebnu D1 bazu i konfiguraciju `apps/api/wrangler.production.jsonc`; `BETTER_AUTH_SECRET` je spremljen isključivo kao Cloudflare Worker secret.
+
 ## Workspace
 
 - `apps/web` — React, Vite i Tailwind frontend
