@@ -3,6 +3,16 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { secureHeaders } from 'hono/secure-headers';
 import { createAuth, type AuthBindings } from './auth';
+import {
+  cancelBooking,
+  createArtistMembership,
+  createBlockedSlot,
+  createBooking,
+  deleteBlockedSlot,
+  getBookingAvailability,
+  listBlockedSlots,
+  listBookings,
+} from './bookings/routes';
 import { BookingCoordinator } from './durable-objects/booking-coordinator';
 import {
   createService,
@@ -64,6 +74,14 @@ app.post('/api/studios/:slug/services', createService);
 app.put('/api/studios/:slug/services/:serviceId', updateService);
 app.get('/api/studios/:slug/availability-rules', listAvailabilityRules);
 app.put('/api/studios/:slug/availability-rules', replaceAvailabilityRules);
+app.get('/api/public/studios/:slug/booking-availability', getBookingAvailability);
+app.post('/api/studios/:slug/artist-membership', createArtistMembership);
+app.post('/api/studios/:slug/bookings', createBooking);
+app.get('/api/studios/:slug/bookings', listBookings);
+app.post('/api/studios/:slug/bookings/:bookingId/cancel', cancelBooking);
+app.get('/api/studios/:slug/blocked-slots', listBlockedSlots);
+app.post('/api/studios/:slug/blocked-slots', createBlockedSlot);
+app.delete('/api/studios/:slug/blocked-slots/:blockId', deleteBlockedSlot);
 
 app.notFound((context) => context.json<ApiErrorBody>({ code: 'NOT_FOUND', message: 'Resource not found.' }, 404));
 

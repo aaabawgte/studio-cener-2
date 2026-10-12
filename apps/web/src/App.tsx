@@ -11,13 +11,14 @@ import { OwnerLayout } from './routes/owner/OwnerLayout';
 import { AvailabilityPage } from './routes/owner/AvailabilityPage';
 import { ServicesPage } from './routes/owner/ServicesPage';
 import { PublicStudioPage } from './routes/public/PublicStudioPage';
+import { BookingPage } from './routes/bookings/BookingPage';
+import { BookingsPage } from './routes/bookings/BookingsPage';
+import { CalendarPage } from './routes/owner/CalendarPage';
 
 // Dev-only katalog komponenti; ne ulazi u produkcijski bundle.
 const UiKit = import.meta.env.DEV ? lazy(() => import('./routes/dev/UiKit')) : null;
 
 const ownerRoutes: { id: string; path: string; description: string }[] = [
-  { id: 'calendar', path: 'kalendar', description: 'Dnevni i tjedni pregled termina, blokada i slobodnih slotova.' },
-  { id: 'bookings', path: 'termini', description: 'Sve rezervacije s filtrima po statusu, datumu i artistu.' },
   { id: 'analytics', path: 'analitika', description: 'Popunjenost, prihod po usluzi i povratni artisti.' },
   { id: 'team', path: 'tim', description: 'Javni profili producenata i inženjera.' },
   { id: 'portfolio', path: 'portfolio', description: 'Projekti koji se prikazuju na javnom profilu studija.' },
@@ -25,8 +26,6 @@ const ownerRoutes: { id: string; path: string; description: string }[] = [
 ];
 
 const artistRoutes: { id: string; path: string; description: string }[] = [
-  { id: 'book', path: 'rezerviraj', description: 'Odaberite uslugu, termin i potvrdite rezervaciju.' },
-  { id: 'bookings', path: 'termini', description: 'Nadolazeći i prošli termini.' },
   { id: 'notifications', path: 'obavijesti', description: 'Potvrde, promjene i podsjetnici.' },
   { id: 'credits', path: 'krediti', description: 'Stanje kredita i paketa sati.' },
   { id: 'waitlist', path: 'lista-cekanja', description: 'Termini na koje čekate oslobađanje.' },
@@ -50,6 +49,8 @@ export function App() {
             ))}
             <Route path="usluge" element={<ServicesPage />} />
             <Route path="radno-vrijeme" element={<AvailabilityPage />} />
+            <Route path="termini" element={<BookingsPage />} />
+            <Route path="kalendar" element={<CalendarPage />} />
             <Route path="*" element={<NotFound inline />} />
           </Route>
 
@@ -58,6 +59,8 @@ export function App() {
             {artistRoutes.map((r) => (
               <Route key={r.id} path={r.path} element={<ModulePlaceholder sections={artistNav} id={r.id} description={r.description} />} />
             ))}
+            <Route path="rezerviraj" element={<BookingPage />} />
+            <Route path="termini" element={<BookingsPage />} />
             <Route path="*" element={<NotFound inline />} />
           </Route>
 

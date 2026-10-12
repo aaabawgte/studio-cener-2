@@ -2,6 +2,7 @@ import { Alert, Button, Card, Field, Input } from '@studio/ui';
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router';
 import { authClient } from '../../lib/auth-client';
+import { joinStudioAsArtist } from '../../features/bookings/booking-api';
 
 type AuthPageProps = { mode: 'sign-in' | 'sign-up' };
 
@@ -19,25 +20,36 @@ export function AuthPage({ mode }: AuthPageProps) {
   const [submitting, setSubmitting] = useState(false);
   const isSignUp = mode === 'sign-up';
   const next = safeNext(searchParams.get('next'));
+  const studioSlug = searchParams.get('studio')?.trim() || null;
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     setSubmitting(true);
 
-    const result = isSignUp
-      ? await authClient.signUp.email({ name: name.trim(), email: email.trim(), password })
-      : await authClient.signIn.email({ email: email.trim(), password });
+    try {
+      const result = isSignUp
+        ? await authClient.signUp.email({ name: name.trim(), email: email.trim(), password })
+        : await authClient.signIn.email({ email: email.trim(), password });
 
-    setSubmitting(false);
-    if (result.error) {
-      setError(result.error.message ?? 'Prijava nije uspjela. Pokušajte ponovno.');
-      return;
+      if (result.error) {
+        setError(result.error.message ?? 'Prijava nije uspjela. Pokušajte ponovno.');
+        return;
+      }
+      if (studioSlug) {
+        await joinStudioAsArtist(studioSlug);
+      }
+      await navigate(next, { replace: true });
+    } catch (caught: unknown) {
+      setError(caught instanceof Error ? caught.message : 'Prijava ili pridruživanje studiju nije uspjelo.');
+    } finally {
+      setSubmitting(false);
     }
-    await navigate(next, { replace: true });
   }
 
-  const alternativePath = `${isSignUp ? '/prijava' : '/registracija'}?next=${encodeURIComponent(next)}`;
+  const alternativeQuery = new URLSearchParams({ next });
+  if (studioSlug) alternativeQuery.set('studio', studioSlug);
+  const alternativePath = `${isSignUp ? '/prijava' : '/registracija'}?${alternativeQuery}`;
 
   return (
     <main className="grid min-h-dvh place-items-center bg-canvas px-4 py-10">

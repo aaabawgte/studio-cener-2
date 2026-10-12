@@ -11,6 +11,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@js-temporal/polyfill": "^0.5.1",
     "@studio/contracts": "*",
     "better-auth": "^1.7.7",
     "hono": "^4.13.13"

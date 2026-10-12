@@ -112,3 +112,61 @@ export const publicStudioSchema = z.object({
   availabilityRules: z.array(availabilityRuleSchema),
 });
 export type PublicStudio = z.infer<typeof publicStudioSchema>;
+
+export const bookingStatusSchema = z.enum(['confirmed', 'cancelled', 'completed', 'no_show']);
+export const bookingSchema = z.object({
+  id: z.string().min(1),
+  studioId: z.string().min(1),
+  resourceId: z.string().min(1),
+  artistUserId: z.string().min(1),
+  serviceId: z.string().min(1),
+  startAtUtc: z.iso.datetime({ offset: true }),
+  endAtUtc: z.iso.datetime({ offset: true }),
+  status: bookingStatusSchema,
+  serviceName: z.string().min(1),
+  durationMinutes: z.number().int().positive(),
+  priceMinor: z.number().int().min(0),
+  currency: z.string().regex(/^[A-Z]{3}$/),
+  createdAt: z.iso.datetime({ offset: true }),
+});
+export type Booking = z.infer<typeof bookingSchema>;
+
+export const bookingCreateSchema = z.object({
+  serviceId: z.string().min(1),
+  startAtUtc: z.iso.datetime({ offset: true }),
+});
+export type BookingCreate = z.infer<typeof bookingCreateSchema>;
+
+export const bookingSlotSchema = z.object({
+  startAtUtc: z.iso.datetime({ offset: true }),
+  endAtUtc: z.iso.datetime({ offset: true }),
+});
+export type BookingSlot = z.infer<typeof bookingSlotSchema>;
+
+export const bookingAvailabilitySchema = z.object({
+  date: z.iso.date(),
+  timezone: z.string().min(1),
+  serviceId: z.string().min(1),
+  durationMinutes: z.number().int().positive(),
+  slots: z.array(bookingSlotSchema),
+});
+export type BookingAvailability = z.infer<typeof bookingAvailabilitySchema>;
+
+export const blockedSlotSchema = z.object({
+  id: z.string().min(1),
+  studioId: z.string().min(1),
+  resourceId: z.string().min(1),
+  startAtUtc: z.iso.datetime({ offset: true }),
+  endAtUtc: z.iso.datetime({ offset: true }),
+  reason: z.string().min(2).max(200),
+  createdAt: z.iso.datetime({ offset: true }),
+});
+export type BlockedSlot = z.infer<typeof blockedSlotSchema>;
+
+const localDateTimeSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/, 'Unesite valjani datum i vrijeme.');
+export const blockedSlotCreateSchema = z.object({
+  startLocal: localDateTimeSchema,
+  endLocal: localDateTimeSchema,
+  reason: z.string().trim().min(2, 'Unesite razlog blokade.').max(200),
+});
+export type BlockedSlotCreate = z.infer<typeof blockedSlotCreateSchema>;

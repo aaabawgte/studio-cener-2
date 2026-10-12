@@ -27,4 +27,4 @@ Pokreni API i web u odvojenim terminalima. Web prosljeđuje development zahtjeve
 npm run check
 ```
 
-Detalji završenih faza nalaze se u dokumentima [temelj](docs/phase-1-foundation.md), [identitet i tenant izolacija](docs/phase-2-identity-tenancy.md) te [studio katalog](docs/phase-3-studio-catalog.md).
+Detalji završenih faza nalaze se u dokumentima [temelj](docs/phase-1-foundation.md), [identitet i tenant izolacija](docs/phase-2-identity-tenancy.md), [studio katalog](docs/phase-3-studio-catalog.md) i [booking engine](docs/phase-4-booking-engine.md).

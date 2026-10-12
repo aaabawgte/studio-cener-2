@@ -24,7 +24,7 @@ export async function resolveStudioAccess(
   env: AuthBindings,
   request: Request,
   slug: string,
-  permission: StudioPermission,
+  permission?: StudioPermission,
 ): Promise<AccessResult> {
   const session = await createAuth(env).api.getSession({ headers: request.headers });
   if (!session) {
@@ -48,7 +48,7 @@ export async function resolveStudioAccess(
   }
 
   const role = studioRoleSchema.parse(row.membership_role);
-  if (!permissionsForRole(role).includes(permission)) {
+  if (permission && !permissionsForRole(role).includes(permission)) {
     return { ok: false, error: { status: 403, body: { code: 'FORBIDDEN', message: 'Permission denied.' } } };
   }
 

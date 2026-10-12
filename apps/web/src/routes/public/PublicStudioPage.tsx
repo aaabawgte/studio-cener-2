@@ -1,5 +1,5 @@
-import { AsyncState, Badge, Card, ErrorState } from '@studio/ui';
-import { useParams } from 'react-router';
+import { AsyncState, Badge, buttonStyles, Card, ErrorState } from '@studio/ui';
+import { Link, useParams } from 'react-router';
 import { fetchPublicStudio } from '../../features/catalog/catalog-api';
 import { useStudioAccent } from '../../features/studio/useStudioAccent';
 import { ApiError } from '../../lib/api/client';
@@ -37,6 +37,20 @@ export function PublicStudioPage() {
                 <h1 className="max-w-3xl text-[3.25rem] leading-[0.98] sm:text-[5rem]">{data.studio.name}</h1>
                 {data.studio.description ? <p className="mt-7 max-w-2xl text-lg leading-relaxed text-ink-muted">{data.studio.description}</p> : null}
                 {data.studio.address ? <p className="mt-5 text-sm text-ink-subtle">{data.studio.address}</p> : null}
+                <div className="mt-8 flex flex-wrap gap-3">
+                  <Link
+                    to={`/registracija?studio=${encodeURIComponent(data.studio.slug)}&next=${encodeURIComponent(`/s/${data.studio.slug}/me/rezerviraj`)}`}
+                    className={buttonStyles({ size: 'lg' })}
+                  >
+                    Rezerviraj termin
+                  </Link>
+                  <Link
+                    to={`/prijava?studio=${encodeURIComponent(data.studio.slug)}&next=${encodeURIComponent(`/s/${data.studio.slug}/me/rezerviraj`)}`}
+                    className={buttonStyles({ variant: 'secondary', size: 'lg' })}
+                  >
+                    Već imam račun
+                  </Link>
+                </div>
               </div>
             </section>
             <div className="mx-auto grid max-w-5xl gap-12 px-5 py-14 sm:px-8 sm:py-20 lg:grid-cols-[1.5fr_1fr]">

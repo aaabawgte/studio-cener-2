@@ -1,11 +1,12 @@
-import { healthResponseSchema, serviceSchema } from '@studio/contracts';
+import { blockedSlotSchema, bookingAvailabilitySchema, bookingSchema, healthResponseSchema, serviceSchema } from '@studio/contracts';
 import { env, exports } from 'cloudflare:workers';
 import { beforeAll, describe, expect, it } from 'vitest';
 import identityMigration from '../../../db/migrations/0001_identity_and_tenancy.sql?raw';
 import catalogMigration from '../../../db/migrations/0002_studio_catalog.sql?raw';
+import bookingMigration from '../../../db/migrations/0003_booking_engine.sql?raw';
 
 beforeAll(async () => {
-  const statements = `${identityMigration}\n${catalogMigration}`
+  const statements = `${identityMigration}\n${catalogMigration}\n${bookingMigration}`
     .split(';')
     .map((statement) => statement.trim())
     .filter(Boolean)
@@ -179,9 +180,132 @@ describe('Studio Cener API foundation', () => {
     ));
     expect(crossTenantCatalogResponse.status).toBe(403);
 
+    const artistSignupResponse = await exports.default.fetch(new Request('https://api.example.test/api/auth/sign-up/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'https://api.example.test' },
+      body: JSON.stringify({
+        name: 'Studio Artist',
+        email: 'artist@example.test',
+        password: 'another-correct-horse-battery-staple',
+      }),
+    }));
+    expect(artistSignupResponse.status).toBe(200);
+    const artistCookie = artistSignupResponse.headers.get('set-cookie')?.split(';', 1)[0];
+    expect(artistCookie).toBeTruthy();
+    const artistJoinResponse = await exports.default.fetch(new Request(
+      'https://api.example.test/api/studios/studio-a/artist-membership',
+      { method: 'POST', headers: { Cookie: artistCookie ?? '' } },
+    ));
+    expect(artistJoinResponse.status).toBe(200);
+
+    const forbiddenArtistBlocks = await exports.default.fetch(new Request(
+      'https://api.example.test/api/studios/studio-a/blocked-slots',
+      { headers: { Cookie: artistCookie ?? '' } },
+    ));
+    expect(forbiddenArtistBlocks.status).toBe(403);
+
+    let availableSlot: string | undefined;
+    for (let offset = 0; offset < 14 && !availableSlot; offset += 1) {
+      const candidate = new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+      const availabilityResponse = await exports.default.fetch(
+        `https://api.example.test/api/public/studios/studio-a/booking-availability?serviceId=${createdService.id}&date=${candidate}`,
+      );
+      if (availabilityResponse.status !== 200) continue;
+      const availability = bookingAvailabilitySchema.parse(await availabilityResponse.json());
+      availableSlot = availability.slots[0]?.startAtUtc;
+    }
+    expect(availableSlot).toBeTruthy();
+
+    const bookingRequest = (key: string) => exports.default.fetch(new Request(
+      'https://api.example.test/api/studios/studio-a/bookings',
+      {
+        method: 'POST',
+        headers: { Cookie: artistCookie ?? '', 'Content-Type': 'application/json', 'Idempotency-Key': key },
+        body: JSON.stringify({ serviceId: createdService.id, startAtUtc: availableSlot }),
+      },
+    ));
+    const bookingKeys = ['booking-test-key-0001', 'booking-test-key-0002'];
+    const concurrent = await Promise.all(bookingKeys.map(bookingRequest));
+    expect(concurrent.map((response) => response.status).sort()).toEqual([201, 409]);
+    const winnerIndex = concurrent.findIndex((response) => response.status === 201);
+    const booking = bookingSchema.parse(await concurrent[winnerIndex]!.json());
+
+    const toStudioLocalInput = (iso: string) => {
+      const parts = new Intl.DateTimeFormat('sv-SE', {
+        timeZone: 'Europe/Zagreb', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+      }).formatToParts(new Date(iso));
+      const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+      return `${values.year}-${values.month}-${values.day}T${values.hour}:${values.minute}`;
+    };
+    const blockBody = {
+      startLocal: toStudioLocalInput(booking.startAtUtc),
+      endLocal: toStudioLocalInput(booking.endAtUtc),
+      reason: 'Održavanje studija',
+    };
+    const conflictingBlock = await exports.default.fetch(new Request(
+      'https://api.example.test/api/studios/studio-a/blocked-slots',
+      {
+        method: 'POST',
+        headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json' },
+        body: JSON.stringify(blockBody),
+      },
+    ));
+    expect(conflictingBlock.status).toBe(409);
+
+    const replay = await bookingRequest(bookingKeys[winnerIndex]!);
+    expect(replay.status).toBe(200);
+    expect(bookingSchema.parse(await replay.json()).id).toBe(booking.id);
+
+    const listResponse = await exports.default.fetch(new Request(
+      'https://api.example.test/api/studios/studio-a/bookings',
+      { headers: { Cookie: artistCookie ?? '' } },
+    ));
+    expect(listResponse.status).toBe(200);
+    await expect(listResponse.json()).resolves.toMatchObject({ bookings: [{ id: booking.id, status: 'confirmed' }] });
+
+    const cancelResponse = await exports.default.fetch(new Request(
+      `https://api.example.test/api/studios/studio-a/bookings/${booking.id}/cancel`,
+      { method: 'POST', headers: { Cookie: artistCookie ?? '' } },
+    ));
+    expect(cancelResponse.status).toBe(200);
+    await expect(cancelResponse.json()).resolves.toMatchObject({ id: booking.id, status: 'cancelled' });
+
+    const claims = await env.DB.prepare('SELECT COUNT(*) AS count FROM slot_claims WHERE booking_id = ?1')
+      .bind(booking.id).first<{ count: number }>();
+    expect(claims?.count).toBe(0);
+    const events = await env.DB.prepare('SELECT event_type FROM booking_events WHERE booking_id = ?1 ORDER BY created_at')
+      .bind(booking.id).all<{ event_type: string }>();
+    expect(events.results.map((event) => event.event_type)).toEqual(['created', 'cancelled']);
+
+    const createBlockResponse = await exports.default.fetch(new Request(
+      'https://api.example.test/api/studios/studio-a/blocked-slots',
+      {
+        method: 'POST',
+        headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json' },
+        body: JSON.stringify(blockBody),
+      },
+    ));
+    expect(createBlockResponse.status).toBe(201);
+    const block = blockedSlotSchema.parse(await createBlockResponse.json());
+
+    const blockedBooking = await bookingRequest('booking-test-key-0003');
+    expect(blockedBooking.status).toBe(409);
+    const blocksResponse = await exports.default.fetch(new Request(
+      'https://api.example.test/api/studios/studio-a/blocked-slots',
+      { headers: { Cookie: cookie ?? '' } },
+    ));
+    expect(blocksResponse.status).toBe(200);
+    await expect(blocksResponse.json()).resolves.toMatchObject({ blockedSlots: [{ id: block.id }] });
+
+    const deleteBlockResponse = await exports.default.fetch(new Request(
+      `https://api.example.test/api/studios/studio-a/blocked-slots/${block.id}`,
+      { method: 'DELETE', headers: { Cookie: cookie ?? '' } },
+    ));
+    expect(deleteBlockResponse.status).toBe(204);
+
     const auditCount = await env.DB.prepare(
       'SELECT COUNT(*) AS count FROM audit_logs WHERE studio_id = ?1',
     ).bind('studio_a').first<{ count: number }>();
-    expect(auditCount?.count).toBe(3);
+    expect(auditCount?.count).toBe(8);
   });
 });
