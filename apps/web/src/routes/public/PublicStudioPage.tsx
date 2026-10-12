@@ -34,6 +34,7 @@ export function PublicStudioPage() {
             <section className="border-b border-line px-5 py-20 sm:px-8 sm:py-28">
               <div className="mx-auto max-w-5xl">
                 <p className="eyebrow mb-5">Recording studio</p>
+                {data.studio.branding.logoUrl ? <img src={data.studio.branding.logoUrl} alt={`${data.studio.name} logo`} className="mb-7 max-h-20 max-w-48 object-contain object-left" /> : null}
                 <h1 className="max-w-3xl text-[3.25rem] leading-[0.98] sm:text-[5rem]">{data.studio.name}</h1>
                 {data.studio.description ? <p className="mt-7 max-w-2xl text-lg leading-relaxed text-ink-muted">{data.studio.description}</p> : null}
                 {data.studio.address ? <p className="mt-5 text-sm text-ink-subtle">{data.studio.address}</p> : null}
@@ -83,6 +84,38 @@ export function PublicStudioPage() {
                 </Card>
               </section>
             </div>
+            {data.teamMembers.length ? (
+              <section className="border-t border-line px-5 py-14 sm:px-8 sm:py-20">
+                <div className="mx-auto max-w-5xl">
+                  <p className="eyebrow mb-3">Ljudi iza zvuka</p>
+                  <h2 className="mb-8 text-3xl">Tim</h2>
+                  <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                    {data.teamMembers.map((member) => (
+                      <Card key={member.id} padded={false} className="overflow-hidden">
+                        {member.imageUrl ? <div className="aspect-square bg-sunken"><img src={member.imageUrl} alt={member.name} className="size-full object-cover" /></div> : null}
+                        <div className="p-5"><h3 className="text-xl">{member.name}</h3><p className="mt-1 text-sm text-accent-strong">{member.roleTitle}</p>{member.bio ? <p className="mt-4 text-sm leading-relaxed text-ink-subtle">{member.bio}</p> : null}</div>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            ) : null}
+            {data.portfolioProjects.length ? (
+              <section className="border-t border-line bg-surface px-5 py-14 sm:px-8 sm:py-20">
+                <div className="mx-auto max-w-5xl">
+                  <p className="eyebrow mb-3">Odabrani radovi</p>
+                  <h2 className="mb-8 text-3xl">Portfolio</h2>
+                  <div className="grid gap-5 sm:grid-cols-2">
+                    {data.portfolioProjects.map((project) => (
+                      <Card key={project.id} padded={false} className="overflow-hidden">
+                        {project.imageUrl ? <div className="aspect-[16/10] bg-sunken"><img src={project.imageUrl} alt={`${project.title} — ${project.artistName}`} className="size-full object-cover" /></div> : null}
+                        <div className="p-5"><p className="eyebrow mb-2">{project.artistName}</p><h3 className="text-xl">{project.title}</h3>{project.description ? <p className="mt-3 text-sm leading-relaxed text-ink-subtle">{project.description}</p> : null}</div>
+                      </Card>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            ) : null}
           </>
         )}
       </AsyncState>

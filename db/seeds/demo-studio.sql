@@ -28,3 +28,15 @@ INSERT OR IGNORE INTO availability_rules (
   ('demo-hours-4', 'studio-demo', 'main:studio-demo', 4, 600, 1200, 1791820800000, 1791820800000),
   ('demo-hours-5', 'studio-demo', 'main:studio-demo', 5, 600, 1200, 1791820800000, 1791820800000),
   ('demo-hours-6', 'studio-demo', 'main:studio-demo', 6, 660, 1080, 1791820800000, 1791820800000);
+
+INSERT OR IGNORE INTO team_members (
+  id, studio_id, name, role_title, bio, status, sort_order, created_at, updated_at
+) VALUES
+  ('demo-team-1', 'studio-demo', 'Luka Horvat', 'Producent i mix inženjer', 'Vodi session od prve ideje do završnog miksa.', 'active', 0, 1791820800000, 1791820800000),
+  ('demo-team-2', 'studio-demo', 'Marta Kovač', 'Recording inženjerka', 'Brine da izvedba ostane prirodna, jasna i puna karaktera.', 'active', 1, 1791820800000, 1791820800000);
+
+INSERT OR IGNORE INTO portfolio_projects (
+  id, studio_id, title, artist_name, description, status, sort_order, created_at, updated_at
+) VALUES
+  ('demo-project-1', 'studio-demo', 'Noćni grad', 'Mia', 'Produkcija, snimanje vokala i završni mix.', 'published', 0, 1791820800000, 1791820800000),
+  ('demo-project-2', 'studio-demo', 'Bez filtera', 'Niko', 'Snimanje benda uživo i miks albuma.', 'published', 1, 1791820800000, 1791820800000);

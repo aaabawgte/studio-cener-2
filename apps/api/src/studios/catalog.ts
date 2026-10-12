@@ -11,6 +11,7 @@ import type { Context } from 'hono';
 import { z } from 'zod';
 import type { AuthBindings } from '../auth';
 import { resolveStudioAccess } from '../authorization/studio-access';
+import { loadPublicContent } from './content';
 
 type ApiEnvironment = { Bindings: AuthBindings; Variables: { requestId: string } };
 type ApiContext = Context<ApiEnvironment>;
@@ -103,6 +104,8 @@ export async function getPublicStudio(context: ApiContext) {
     ? new URL(`/api/public/studios/${encodeURIComponent(studio.slug)}/logo`, context.req.url).toString()
     : null;
 
+  const content = await loadPublicContent(context, studio.id, studio.slug);
+
   return context.json(publicStudioSchema.parse({
     studio: {
       id: studio.id,
@@ -116,6 +119,7 @@ export async function getPublicStudio(context: ApiContext) {
     },
     services: (servicesResult.results as unknown as ServiceRow[]).map(mapService),
     availabilityRules: (rulesResult.results as unknown as AvailabilityRow[]).map(mapRule),
+    ...content,
   }));
 }
 

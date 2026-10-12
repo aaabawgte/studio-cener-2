@@ -1,13 +1,14 @@
-import { blockedSlotSchema, bookingAvailabilitySchema, bookingSchema, healthResponseSchema, platformStudioCreatedSchema, serviceSchema } from '@studio/contracts';
+import { blockedSlotSchema, bookingAvailabilitySchema, bookingSchema, healthResponseSchema, platformStudioCreatedSchema, portfolioProjectSchema, serviceSchema, teamMemberSchema } from '@studio/contracts';
 import { env, exports } from 'cloudflare:workers';
 import { beforeAll, describe, expect, it } from 'vitest';
 import identityMigration from '../../../db/migrations/0001_identity_and_tenancy.sql?raw';
 import catalogMigration from '../../../db/migrations/0002_studio_catalog.sql?raw';
 import bookingMigration from '../../../db/migrations/0003_booking_engine.sql?raw';
 import platformMigration from '../../../db/migrations/0004_platform_onboarding.sql?raw';
+import contentMigration from '../../../db/migrations/0005_studio_content.sql?raw';
 
 beforeAll(async () => {
-  const statements = `${identityMigration}\n${catalogMigration}\n${bookingMigration}\n${platformMigration}`
+  const statements = `${identityMigration}\n${catalogMigration}\n${bookingMigration}\n${platformMigration}\n${contentMigration}`
     .split(';')
     .map((statement) => statement.trim())
     .filter(Boolean)
@@ -166,6 +167,51 @@ describe('Studio Cener API foundation', () => {
       ],
     });
 
+    const settingsResponse = await exports.default.fetch(new Request(
+      'https://api.example.test/api/studios/studio-a/settings',
+      {
+        method: 'PUT',
+        headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Studio A', description: 'Snimanje i produkcija u Zagrebu.', address: 'Zagreb', accentColor: '#76543b' }),
+      },
+    ));
+    expect(settingsResponse.status).toBe(200);
+    await expect(settingsResponse.json()).resolves.toMatchObject({ description: 'Snimanje i produkcija u Zagrebu.', branding: { accentColor: '#76543b' } });
+
+    const createTeam = async (name: string, status: 'active' | 'hidden') => {
+      const response = await exports.default.fetch(new Request('https://api.example.test/api/studios/studio-a/team-members', {
+        method: 'POST', headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, roleTitle: 'Producent', bio: 'Radi s artistima.', status, sortOrder: 0 }),
+      }));
+      expect(response.status).toBe(201);
+      return teamMemberSchema.parse(await response.json());
+    };
+    const publicMember = await createTeam('Javni Producent', 'active');
+    await createTeam('Skriveni Producent', 'hidden');
+
+    const createProject = async (title: string, status: 'draft' | 'published') => {
+      const response = await exports.default.fetch(new Request('https://api.example.test/api/studios/studio-a/portfolio-projects', {
+        method: 'POST', headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, artistName: 'Artist A', description: 'Projekt studija.', status, sortOrder: 0 }),
+      }));
+      expect(response.status).toBe(201);
+      return portfolioProjectSchema.parse(await response.json());
+    };
+    await createProject('Objavljeni projekt', 'published');
+    await createProject('Skica projekta', 'draft');
+
+    const imageForm = new FormData();
+    imageForm.set('file', new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0])], 'profile.png', { type: 'image/png' }));
+    const imageUploadResponse = await exports.default.fetch(new Request(
+      `https://api.example.test/api/studios/studio-a/team-members/${publicMember.id}/image`,
+      { method: 'POST', headers: { Cookie: cookie ?? '' }, body: imageForm },
+    ));
+    expect(imageUploadResponse.status).toBe(200);
+    const uploadedImage = await imageUploadResponse.json<{ imageUrl: string }>();
+    const publicImageResponse = await exports.default.fetch(uploadedImage.imageUrl);
+    expect(publicImageResponse.status).toBe(200);
+    expect(publicImageResponse.headers.get('content-type')).toBe('image/png');
+
     const publicStudioResponse = await exports.default.fetch(
       'https://api.example.test/api/public/studios/studio-a',
     );
@@ -177,6 +223,8 @@ describe('Studio Cener API foundation', () => {
         { weekday: 1, startMinute: 600, endMinute: 1080 },
         { weekday: 2, startMinute: 600, endMinute: 1080 },
       ],
+      teamMembers: [{ name: 'Javni Producent', status: 'active' }],
+      portfolioProjects: [{ title: 'Objavljeni projekt', status: 'published' }],
     });
 
     const crossTenantCatalogResponse = await exports.default.fetch(new Request(
@@ -311,7 +359,7 @@ describe('Studio Cener API foundation', () => {
     const auditCount = await env.DB.prepare(
       'SELECT COUNT(*) AS count FROM audit_logs WHERE studio_id = ?1',
     ).bind('studio_a').first<{ count: number }>();
-    expect(auditCount?.count).toBe(8);
+    expect(auditCount?.count).toBe(14);
 
     const createManagedStudioResponse = await exports.default.fetch(new Request(
       'https://api.example.test/api/platform/studios',

@@ -103,6 +103,62 @@ export const availabilityRulesWriteSchema = z.object({
 });
 export type AvailabilityRulesWrite = z.infer<typeof availabilityRulesWriteSchema>;
 
+export const studioSettingsSchema = studioSummarySchema.extend({
+  description: z.string().nullable(),
+  address: z.string().nullable(),
+});
+export type StudioSettings = z.infer<typeof studioSettingsSchema>;
+
+export const studioSettingsWriteSchema = z.object({
+  name: z.string().trim().min(2, 'Unesite naziv studija.').max(100),
+  description: z.string().trim().max(1000).nullable(),
+  address: z.string().trim().max(300).nullable(),
+  accentColor: z.string().regex(/^#[0-9a-f]{6}$/i, 'Unesite boju u formatu #76543b.').nullable(),
+});
+export type StudioSettingsWrite = z.infer<typeof studioSettingsWriteSchema>;
+
+export const teamMemberStatusSchema = z.enum(['active', 'hidden']);
+export const teamMemberSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1).max(100),
+  roleTitle: z.string().min(1).max(100),
+  bio: z.string().max(1000).nullable(),
+  imageUrl: z.url().nullable(),
+  status: teamMemberStatusSchema,
+  sortOrder: z.number().int().min(0),
+});
+export type TeamMember = z.infer<typeof teamMemberSchema>;
+
+export const teamMemberWriteSchema = z.object({
+  name: z.string().trim().min(2, 'Unesite ime člana tima.').max(100),
+  roleTitle: z.string().trim().min(2, 'Unesite ulogu člana tima.').max(100),
+  bio: z.string().trim().max(1000).nullable(),
+  status: teamMemberStatusSchema.optional(),
+  sortOrder: z.number().int().min(0).max(10_000).optional(),
+});
+export type TeamMemberWrite = z.infer<typeof teamMemberWriteSchema>;
+
+export const portfolioStatusSchema = z.enum(['draft', 'published']);
+export const portfolioProjectSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1).max(150),
+  artistName: z.string().min(1).max(100),
+  description: z.string().max(1000).nullable(),
+  imageUrl: z.url().nullable(),
+  status: portfolioStatusSchema,
+  sortOrder: z.number().int().min(0),
+});
+export type PortfolioProject = z.infer<typeof portfolioProjectSchema>;
+
+export const portfolioProjectWriteSchema = z.object({
+  title: z.string().trim().min(2, 'Unesite naziv projekta.').max(150),
+  artistName: z.string().trim().min(2, 'Unesite ime artista.').max(100),
+  description: z.string().trim().max(1000).nullable(),
+  status: portfolioStatusSchema.optional(),
+  sortOrder: z.number().int().min(0).max(10_000).optional(),
+});
+export type PortfolioProjectWrite = z.infer<typeof portfolioProjectWriteSchema>;
+
 export const publicStudioSchema = z.object({
   studio: studioSummarySchema.extend({
     description: z.string().nullable(),
@@ -110,6 +166,8 @@ export const publicStudioSchema = z.object({
   }),
   services: z.array(serviceSchema),
   availabilityRules: z.array(availabilityRuleSchema),
+  teamMembers: z.array(teamMemberSchema),
+  portfolioProjects: z.array(portfolioProjectSchema),
 });
 export type PublicStudio = z.infer<typeof publicStudioSchema>;
 

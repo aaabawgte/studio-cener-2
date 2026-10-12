@@ -45,6 +45,7 @@ export type ApiRequestOptions = Omit<RequestInit, 'body'> & {
 };
 
 export async function apiFetch<T>(path: string, { body, idempotencyKey, headers, ...init }: ApiRequestOptions = {}): Promise<T> {
+  const isFormData = body instanceof FormData;
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
@@ -52,11 +53,11 @@ export async function apiFetch<T>(path: string, { body, idempotencyKey, headers,
       ...init,
       headers: {
         Accept: 'application/json',
-        ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+        ...(body !== undefined && !isFormData ? { 'Content-Type': 'application/json' } : {}),
         ...(idempotencyKey ? { 'Idempotency-Key': idempotencyKey } : {}),
         ...headers,
       },
-      body: body !== undefined ? JSON.stringify(body) : undefined,
+      body: body !== undefined ? (isFormData ? body : JSON.stringify(body)) : undefined,
     });
   } catch (error: unknown) {
     if (error instanceof DOMException && error.name === 'AbortError') throw error;

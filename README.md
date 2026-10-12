@@ -16,6 +16,7 @@ Cloudflare Pages Functions prosljeđuje `/api/*` na Worker unutar istog javnog o
 - `packages/ui` — zajednički dizajn sustav i dostupne UI komponente
 - `packages/contracts` — Zod API ugovori i dijeljeni tipovi
 - `db/migrations` — verzionirane D1 migracije
+- privatni R2 bucket `studio-cener-media` — logo, tim i portfolio slike
 
 ## Lokalni razvoj
 
@@ -34,4 +35,4 @@ Pokreni API i web u odvojenim terminalima. Web prosljeđuje development zahtjeve
 npm run check
 ```
 
-Detalji završenih faza nalaze se u dokumentima [temelj](docs/phase-1-foundation.md), [identitet i tenant izolacija](docs/phase-2-identity-tenancy.md), [studio katalog](docs/phase-3-studio-catalog.md), [booking engine](docs/phase-4-booking-engine.md) i [platform onboarding](docs/phase-5-platform-onboarding.md).
+Detalji završenih faza nalaze se u dokumentima [temelj](docs/phase-1-foundation.md), [identitet i tenant izolacija](docs/phase-2-identity-tenancy.md), [studio katalog](docs/phase-3-studio-catalog.md), [booking engine](docs/phase-4-booking-engine.md), [platform onboarding](docs/phase-5-platform-onboarding.md) i [studio sadržaj](docs/phase-6-studio-content.md).

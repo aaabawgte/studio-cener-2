@@ -17,6 +17,12 @@
       "migrations_dir": "../../db/migrations"
     }
   ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "studio-cener-media"
+    }
+  ],
   "durable_objects": {
     "bindings": [
       {

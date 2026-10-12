@@ -51,6 +51,7 @@ export async function mockSaveAvailability(next: Omit<AvailabilityRule, 'id'>[])
 
 export async function mockPublicStudio(slug: string, signal?: AbortSignal): Promise<PublicStudio> {
   await wait(signal);
+  const content = (await import('./content')).mockPublicContent();
   return {
     studio: {
       id: `studio-${slug}`,
@@ -64,5 +65,6 @@ export async function mockPublicStudio(slug: string, signal?: AbortSignal): Prom
     },
     services: structuredClone(services.filter((service) => service.status === 'active')),
     availabilityRules: structuredClone(rules),
+    ...content,
   };
 }

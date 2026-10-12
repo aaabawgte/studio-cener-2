@@ -16,15 +16,15 @@ import { BookingsPage } from './routes/bookings/BookingsPage';
 import { CalendarPage } from './routes/owner/CalendarPage';
 import { PlatformPage } from './routes/platform/PlatformPage';
 import { InvitationPage } from './routes/platform/InvitationPage';
+import { SettingsPage } from './routes/owner/SettingsPage';
+import { TeamPage } from './routes/owner/TeamPage';
+import { PortfolioPage } from './routes/owner/PortfolioPage';
 
 // Dev-only katalog komponenti; ne ulazi u produkcijski bundle.
 const UiKit = import.meta.env.DEV ? lazy(() => import('./routes/dev/UiKit')) : null;
 
 const ownerRoutes: { id: string; path: string; description: string }[] = [
   { id: 'analytics', path: 'analitika', description: 'Popunjenost, prihod po usluzi i povratni artisti.' },
-  { id: 'team', path: 'tim', description: 'Javni profili producenata i inženjera.' },
-  { id: 'portfolio', path: 'portfolio', description: 'Projekti koji se prikazuju na javnom profilu studija.' },
-  { id: 'settings', path: 'postavke', description: 'Podaci studija, brand i pravila rezerviranja.' },
 ];
 
 const artistRoutes: { id: string; path: string; description: string }[] = [
@@ -55,6 +55,9 @@ export function App() {
             <Route path="radno-vrijeme" element={<AvailabilityPage />} />
             <Route path="termini" element={<BookingsPage />} />
             <Route path="kalendar" element={<CalendarPage />} />
+            <Route path="tim" element={<TeamPage />} />
+            <Route path="portfolio" element={<PortfolioPage />} />
+            <Route path="postavke" element={<SettingsPage />} />
             <Route path="*" element={<NotFound inline />} />
           </Route>
 

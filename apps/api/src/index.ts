@@ -24,6 +24,20 @@ import {
   updateService,
 } from './studios/catalog';
 import { getStudioViewerContext } from './studios/viewer-context';
+import {
+  createPortfolioProject,
+  createTeamMember,
+  getPublicLogo,
+  getPublicPortfolioImage,
+  getPublicTeamImage,
+  getStudioSettings,
+  listPortfolioProjects,
+  listTeamMembers,
+  updatePortfolioProject,
+  updateStudioSettings,
+  updateTeamMember,
+  uploadStudioImage,
+} from './studios/content';
 
 type AppEnvironment = {
   Bindings: AuthBindings;
@@ -70,6 +84,20 @@ app.all('/api/auth/*', (context) => createAuth(context.env).handler(context.req.
 
 app.get('/api/studios/:slug/viewer-context', getStudioViewerContext);
 app.get('/api/public/studios/:slug', getPublicStudio);
+app.get('/api/public/studios/:slug/logo', getPublicLogo);
+app.get('/api/public/studios/:slug/team-members/:memberId/image', getPublicTeamImage);
+app.get('/api/public/studios/:slug/portfolio-projects/:projectId/image', getPublicPortfolioImage);
+app.get('/api/studios/:slug/settings', getStudioSettings);
+app.put('/api/studios/:slug/settings', updateStudioSettings);
+app.post('/api/studios/:slug/logo', (context) => uploadStudioImage(context, 'logo'));
+app.get('/api/studios/:slug/team-members', listTeamMembers);
+app.post('/api/studios/:slug/team-members', createTeamMember);
+app.put('/api/studios/:slug/team-members/:memberId', updateTeamMember);
+app.post('/api/studios/:slug/team-members/:memberId/image', (context) => uploadStudioImage(context, 'team'));
+app.get('/api/studios/:slug/portfolio-projects', listPortfolioProjects);
+app.post('/api/studios/:slug/portfolio-projects', createPortfolioProject);
+app.put('/api/studios/:slug/portfolio-projects/:projectId', updatePortfolioProject);
+app.post('/api/studios/:slug/portfolio-projects/:projectId/image', (context) => uploadStudioImage(context, 'portfolio'));
 app.get('/api/studios/:slug/services', listServices);
 app.post('/api/studios/:slug/services', createService);
 app.put('/api/studios/:slug/services/:serviceId', updateService);
