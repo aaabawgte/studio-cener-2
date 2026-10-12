@@ -6,6 +6,7 @@ import { ArtistLayout } from './routes/artist/ArtistLayout';
 import { Home } from './routes/Home';
 import { ModulePlaceholder } from './routes/ModulePlaceholder';
 import { NotFound } from './routes/NotFound';
+import { AuthPage } from './routes/auth/AuthPage';
 import { OwnerLayout } from './routes/owner/OwnerLayout';
 
 // Dev-only katalog komponenti; ne ulazi u produkcijski bundle.
@@ -37,6 +38,8 @@ export function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Home />} />
+          <Route path="/prijava" element={<AuthPage mode="sign-in" />} />
+          <Route path="/registracija" element={<AuthPage mode="sign-up" />} />
 
           <Route path="/app/:slug" element={<OwnerLayout />}>
             <Route index element={<ModulePlaceholder sections={ownerNav} id="overview" description="Današnji termini, popunjenost tjedna i stvari koje traže pažnju." />} />

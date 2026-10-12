@@ -14,6 +14,7 @@ White-label booking platforma za recording studije, izgrađena kao TypeScript mo
 
 ```sh
 npm install
+npx wrangler d1 migrations apply studio-cener-local --local --config apps/api/wrangler.jsonc
 npm run dev:api
 npm run dev
 ```
@@ -26,4 +27,4 @@ Pokreni API i web u odvojenim terminalima. Web prosljeđuje development zahtjeve
 npm run check
 ```
 
-Detalji faze nalaze se u [dokumentaciji temelja](docs/phase-1-foundation.md).
+Detalji završenih faza nalaze se u [dokumentaciji temelja](docs/phase-1-foundation.md) i [dokumentaciji identiteta i tenant izolacije](docs/phase-2-identity-tenancy.md).

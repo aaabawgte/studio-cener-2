@@ -1,16 +1,12 @@
-import { apiFetch } from '../../lib/api/client';
+import { authClient } from '../../lib/auth-client';
 import { USE_MOCKS } from '../../lib/env';
 
-/**
- * Odjava. PRIVREMENO: kad auth core izloži Better Auth klijent u web aplikaciji,
- * zamijeniti pozivom `authClient.signOut()` — ovdje se namjerno ne dira auth logika.
- */
 export async function signOut(): Promise<void> {
   if (USE_MOCKS) return;
-  await apiFetch<void>('/api/auth/sign-out', { method: 'POST', body: {} });
+  const result = await authClient.signOut();
+  if (result.error) throw new Error(result.error.message ?? 'Odjava nije uspjela.');
 }
 
-/** Ruta prijave još ne postoji; dogovoriti s auth ownerom. */
 export function loginUrl(next: string): string {
   return `/prijava?next=${encodeURIComponent(next)}`;
 }

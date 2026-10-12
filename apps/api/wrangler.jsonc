@@ -5,7 +5,9 @@
   "compatibility_date": "2026-10-12",
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
-    "ENVIRONMENT": "local"
+    "ENVIRONMENT": "local",
+    "AUTH_BASE_URL": "http://localhost:8787",
+    "TRUSTED_ORIGINS": "http://localhost:5173"
   },
   "d1_databases": [
     {

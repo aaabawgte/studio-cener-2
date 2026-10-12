@@ -1,10 +1,12 @@
 import { healthResponseSchema, type ApiErrorBody } from '@studio/contracts';
 import { Hono } from 'hono';
 import { secureHeaders } from 'hono/secure-headers';
+import { createAuth, type AuthBindings } from './auth';
 import { BookingCoordinator } from './durable-objects/booking-coordinator';
+import { getStudioViewerContext } from './studios/viewer-context';
 
 type AppEnvironment = {
-  Bindings: Env;
+  Bindings: AuthBindings;
   Variables: { requestId: string };
 };
 
@@ -32,6 +34,10 @@ app.get('/api/health', async (context) => {
   });
   return context.json(payload);
 });
+
+app.all('/api/auth/*', (context) => createAuth(context.env).handler(context.req.raw));
+
+app.get('/api/studios/:slug/viewer-context', getStudioViewerContext);
 
 app.notFound((context) => context.json<ApiErrorBody>({ code: 'NOT_FOUND', message: 'Resource not found.' }, 404));
 
