@@ -1,10 +1,11 @@
-import { healthResponseSchema } from '@studio/contracts';
+import { healthResponseSchema, serviceSchema } from '@studio/contracts';
 import { env, exports } from 'cloudflare:workers';
 import { beforeAll, describe, expect, it } from 'vitest';
 import identityMigration from '../../../db/migrations/0001_identity_and_tenancy.sql?raw';
+import catalogMigration from '../../../db/migrations/0002_studio_catalog.sql?raw';
 
 beforeAll(async () => {
-  const statements = identityMigration
+  const statements = `${identityMigration}\n${catalogMigration}`
     .split(';')
     .map((statement) => statement.trim())
     .filter(Boolean)
@@ -37,6 +38,21 @@ describe('Studio Cener API foundation', () => {
 
     expect(response.status).toBe(404);
     await expect(response.json()).resolves.toEqual({ code: 'NOT_FOUND', message: 'Resource not found.' });
+  });
+
+  it('allows credentialed API requests only from configured origins', async () => {
+    const trusted = await exports.default.fetch(new Request('https://api.example.test/api/health', {
+      method: 'OPTIONS',
+      headers: { Origin: 'https://api.example.test', 'Access-Control-Request-Method': 'GET' },
+    }));
+    expect(trusted.headers.get('access-control-allow-origin')).toBe('https://api.example.test');
+    expect(trusted.headers.get('access-control-allow-credentials')).toBe('true');
+
+    const untrusted = await exports.default.fetch(new Request('https://api.example.test/api/health', {
+      method: 'OPTIONS',
+      headers: { Origin: 'https://evil.example', 'Access-Control-Request-Method': 'GET' },
+    }));
+    expect(untrusted.headers.get('access-control-allow-origin')).toBeNull();
   });
 
   it('creates a Better Auth session and resolves only its own studio membership', async () => {
@@ -95,5 +111,77 @@ describe('Studio Cener API foundation', () => {
       code: 'MEMBERSHIP_REQUIRED',
       message: 'Studio membership required.',
     });
+
+    const createServiceResponse = await exports.default.fetch(new Request(
+      'https://api.example.test/api/studios/studio-a/services',
+      {
+        method: 'POST',
+        headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Snimanje vokala', durationMinutes: 120, priceMinor: 9000 }),
+      },
+    ));
+    expect(createServiceResponse.status).toBe(201);
+    const createdService = serviceSchema.parse(await createServiceResponse.json());
+    expect(createdService).toMatchObject({
+      name: 'Snimanje vokala',
+      durationMinutes: 120,
+      priceMinor: 9000,
+      currency: 'EUR',
+    });
+
+    const updateServiceResponse = await exports.default.fetch(new Request(
+      `https://api.example.test/api/studios/studio-a/services/${createdService.id}`,
+      {
+        method: 'PUT',
+        headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Snimanje i produkcija vokala', durationMinutes: 120, priceMinor: 10000 }),
+      },
+    ));
+    expect(updateServiceResponse.status).toBe(200);
+    await expect(updateServiceResponse.json()).resolves.toMatchObject({ name: 'Snimanje i produkcija vokala', priceMinor: 10000 });
+
+    const replaceHoursResponse = await exports.default.fetch(new Request(
+      'https://api.example.test/api/studios/studio-a/availability-rules',
+      {
+        method: 'PUT',
+        headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rules: [
+          { weekday: 1, startMinute: 600, endMinute: 1080 },
+          { weekday: 2, startMinute: 600, endMinute: 1080 },
+        ] }),
+      },
+    ));
+    expect(replaceHoursResponse.status).toBe(200);
+    await expect(replaceHoursResponse.json()).resolves.toMatchObject({
+      timezone: 'Europe/Zagreb',
+      rules: [
+        { weekday: 1, startMinute: 600, endMinute: 1080 },
+        { weekday: 2, startMinute: 600, endMinute: 1080 },
+      ],
+    });
+
+    const publicStudioResponse = await exports.default.fetch(
+      'https://api.example.test/api/public/studios/studio-a',
+    );
+    expect(publicStudioResponse.status).toBe(200);
+    await expect(publicStudioResponse.json()).resolves.toMatchObject({
+      studio: { slug: 'studio-a', name: 'Studio A' },
+      services: [{ name: 'Snimanje i produkcija vokala', priceMinor: 10000 }],
+      availabilityRules: [
+        { weekday: 1, startMinute: 600, endMinute: 1080 },
+        { weekday: 2, startMinute: 600, endMinute: 1080 },
+      ],
+    });
+
+    const crossTenantCatalogResponse = await exports.default.fetch(new Request(
+      'https://api.example.test/api/studios/studio-b/services',
+      { headers: { Cookie: cookie ?? '' } },
+    ));
+    expect(crossTenantCatalogResponse.status).toBe(403);
+
+    const auditCount = await env.DB.prepare(
+      'SELECT COUNT(*) AS count FROM audit_logs WHERE studio_id = ?1',
+    ).bind('studio_a').first<{ count: number }>();
+    expect(auditCount?.count).toBe(3);
   });
 });

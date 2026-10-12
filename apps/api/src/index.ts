@@ -1,8 +1,17 @@
 import { healthResponseSchema, type ApiErrorBody } from '@studio/contracts';
 import { Hono } from 'hono';
+import { cors } from 'hono/cors';
 import { secureHeaders } from 'hono/secure-headers';
 import { createAuth, type AuthBindings } from './auth';
 import { BookingCoordinator } from './durable-objects/booking-coordinator';
+import {
+  createService,
+  getPublicStudio,
+  listAvailabilityRules,
+  listServices,
+  replaceAvailabilityRules,
+  updateService,
+} from './studios/catalog';
 import { getStudioViewerContext } from './studios/viewer-context';
 
 type AppEnvironment = {
@@ -13,6 +22,17 @@ type AppEnvironment = {
 const app = new Hono<AppEnvironment>();
 
 app.use('*', secureHeaders());
+app.use('/api/*', cors({
+  origin: (origin, context) => {
+    const allowed = (context.env as AuthBindings).TRUSTED_ORIGINS.split(',').map((value) => value.trim());
+    return allowed.includes(origin) ? origin : null;
+  },
+  allowHeaders: ['Content-Type', 'X-Request-Id', 'Idempotency-Key'],
+  allowMethods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  exposeHeaders: ['X-Request-Id'],
+  credentials: true,
+  maxAge: 600,
+}));
 app.use('*', async (context, next) => {
   const requestId = context.req.header('X-Request-Id') ?? crypto.randomUUID();
   context.set('requestId', requestId);
@@ -38,6 +58,12 @@ app.get('/api/health', async (context) => {
 app.all('/api/auth/*', (context) => createAuth(context.env).handler(context.req.raw));
 
 app.get('/api/studios/:slug/viewer-context', getStudioViewerContext);
+app.get('/api/public/studios/:slug', getPublicStudio);
+app.get('/api/studios/:slug/services', listServices);
+app.post('/api/studios/:slug/services', createService);
+app.put('/api/studios/:slug/services/:serviceId', updateService);
+app.get('/api/studios/:slug/availability-rules', listAvailabilityRules);
+app.put('/api/studios/:slug/availability-rules', replaceAvailabilityRules);
 
 app.notFound((context) => context.json<ApiErrorBody>({ code: 'NOT_FOUND', message: 'Resource not found.' }, 404));
 
