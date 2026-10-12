@@ -1,0 +1,19 @@
+{
+  "name": "studio-cener",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20.19"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace @studio/web",
+    "build": "npm run build --workspace @studio/web",
+    "preview": "npm run preview --workspace @studio/web",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  }
+}

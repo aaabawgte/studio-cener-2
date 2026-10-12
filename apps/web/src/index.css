@@ -1,0 +1,7 @@
+@import "tailwindcss";
+@import "@fontsource-variable/fraunces";
+@import "@fontsource-variable/instrument-sans";
+@import "@studio/ui/styles.css";
+
+/* Tailwind mora skenirati i klase iz UI paketa. */
+@source "../../../packages/ui/src";
