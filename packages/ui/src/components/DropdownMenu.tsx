@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Icon, type IconName } from '../icons/Icon';
 import { cn } from '../lib/cn';
 
@@ -47,9 +47,13 @@ export function DropdownMenu({ trigger, items, align = 'end', placement = 'botto
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const focusIndexOnOpen = useRef<'first' | 'last'>('first');
 
-  const enabledIndexes = items
-    .map((item, index) => (item.type !== 'separator' && !item.disabled ? index : -1))
-    .filter((i) => i >= 0);
+  const enabledIndexes = useMemo(
+    () =>
+      items
+        .map((item, index) => (item.type !== 'separator' && !item.disabled ? index : -1))
+        .filter((i) => i >= 0),
+    [items],
+  );
 
   const focusItem = (index: number | undefined) => {
     if (index === undefined) return;
@@ -64,7 +68,7 @@ export function DropdownMenu({ trigger, items, align = 'end', placement = 'botto
     };
     document.addEventListener('pointerdown', onPointer);
     return () => document.removeEventListener('pointerdown', onPointer);
-  }, [open]);
+  }, [enabledIndexes, open]);
 
   const close = (returnFocus = true) => {
     setOpen(false);

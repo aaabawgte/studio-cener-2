@@ -18,7 +18,7 @@ export function ModulePlaceholder({ sections, id, description }: { sections: Nav
           size="compact"
           icon={item?.icon ?? 'inbox'}
           title="Modul je u izradi"
-          description="Ovaj ekran stiže u jednoj od sljedećih feature grana. Navigacija i okvir su spremni."
+          description="Ovaj modul još nije dostupan."
         />
       </Card>
     </>

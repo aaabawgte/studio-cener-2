@@ -35,7 +35,7 @@ export function useForm<V extends Record<string, unknown>>({
   const [formError, setFormError] = useState<string | null>(null);
   const initialRef = useRef(initialValues);
 
-  const runValidation = useCallback((next: V) => (validate ? validate(next) : {}), [validate]);
+  const runValidation = useCallback((next: V): FieldErrors<V> => (validate ? validate(next) : {}), [validate]);
 
   const valuesRef = useRef(values);
   valuesRef.current = values;

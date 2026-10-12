@@ -93,7 +93,7 @@ Ključni indeksi: `bookings(studio_id,resource_id,start_at_utc)`, `bookings(stud
 6. **Vrijednost i promocije** — ručno dodijeljeni paketi i krediti, package ledger/balance, credit ledger, promo kodovi te pravila korekcije i povrata pri otkazivanju. Gate: saldo se rekonstruira iz ledger zapisa, ne može postati negativan i svaka promjena ima ovlaštenog autora i razlog.
 7. **Analitika i operativa** — owner KPI, platform admin, Sentry, backup/restore vježba, rate limits, sigurnosna provjera, pristupačnost, load test, produkcijski rollout. Gate: runbook, rollback i release checklist odobreni.
 
-Svaka faza završava popisom promijenjenih datoteka, načinom testiranja, rizicima/odlukama i jednim sljedećim korakom. Claudeov izvještaj se razmatra po nalazu i dokazima; mijenja se samo ono što je opravdano i provjereno.
+Svaka faza završava popisom promijenjenih datoteka, načinom testiranja, rizicima/odlukama i jednim sljedećim korakom. Review nalazi razmatraju se po dokazu i utjecaju; mijenja se samo ono što je opravdano i provjereno.
 
 ## Otvorene odluke
 

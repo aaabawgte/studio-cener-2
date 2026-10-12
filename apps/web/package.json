@@ -12,6 +12,7 @@
   "dependencies": {
     "@fontsource-variable/fraunces": "^5.0.0",
     "@fontsource-variable/instrument-sans": "^5.0.0",
+    "@studio/contracts": "*",
     "@studio/ui": "*",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
