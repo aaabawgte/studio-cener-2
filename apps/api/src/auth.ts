@@ -2,6 +2,7 @@ import { betterAuth } from 'better-auth';
 
 export type AuthBindings = Env & {
   BETTER_AUTH_SECRET: string;
+  PLATFORM_ADMIN_EMAILS: string;
 };
 
 export function createAuth(env: AuthBindings) {

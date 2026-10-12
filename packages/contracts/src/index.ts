@@ -170,3 +170,51 @@ export const blockedSlotCreateSchema = z.object({
   reason: z.string().trim().min(2, 'Unesite razlog blokade.').max(200),
 });
 export type BlockedSlotCreate = z.infer<typeof blockedSlotCreateSchema>;
+
+export const licensePlanSchema = z.enum(['starter', 'pro', 'custom']);
+export const licenseStatusSchema = z.enum(['trial', 'active', 'grace', 'suspended', 'expired']);
+export const domainStatusSchema = z.enum(['pending', 'active', 'failed']);
+
+export const platformStudioSchema = z.object({
+  id: z.string().min(1),
+  slug: z.string().min(1),
+  name: z.string().min(1),
+  status: z.enum(['active', 'suspended', 'archived']),
+  ownerEmail: z.email().nullable(),
+  license: z.object({
+    plan: licensePlanSchema,
+    status: licenseStatusSchema,
+    expiresAt: z.iso.datetime({ offset: true }),
+  }),
+  domain: z.object({ hostname: z.string().min(1), status: domainStatusSchema, sslStatus: domainStatusSchema }).nullable(),
+});
+export type PlatformStudio = z.infer<typeof platformStudioSchema>;
+
+export const platformStudioCreateSchema = z.object({
+  name: z.string().trim().min(2).max(100),
+  slug: z.string().trim().toLowerCase().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/).min(2).max(63),
+  ownerEmail: z.email(),
+  timezone: z.string().trim().min(1).max(100),
+  currency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/),
+  plan: licensePlanSchema,
+  expiresAt: z.iso.datetime({ offset: true }),
+  hostname: z.string().trim().toLowerCase().max(253).optional(),
+});
+export type PlatformStudioCreate = z.infer<typeof platformStudioCreateSchema>;
+
+export const platformStudioCreatedSchema = z.object({
+  studio: platformStudioSchema,
+  invitationToken: z.string().min(32),
+});
+export type PlatformStudioCreated = z.infer<typeof platformStudioCreatedSchema>;
+
+export const licenseUpdateSchema = z.object({
+  plan: licensePlanSchema,
+  status: licenseStatusSchema,
+  expiresAt: z.iso.datetime({ offset: true }),
+});
+export type LicenseUpdate = z.infer<typeof licenseUpdateSchema>;
+
+export const invitationAcceptSchema = z.object({ token: z.string().min(32).max(256) });
+export const invitationAcceptedSchema = z.object({ studioSlug: z.string().min(1), role: z.enum(['owner', 'manager']) });
+export type InvitationAccepted = z.infer<typeof invitationAcceptedSchema>;

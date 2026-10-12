@@ -14,6 +14,8 @@ import { PublicStudioPage } from './routes/public/PublicStudioPage';
 import { BookingPage } from './routes/bookings/BookingPage';
 import { BookingsPage } from './routes/bookings/BookingsPage';
 import { CalendarPage } from './routes/owner/CalendarPage';
+import { PlatformPage } from './routes/platform/PlatformPage';
+import { InvitationPage } from './routes/platform/InvitationPage';
 
 // Dev-only katalog komponenti; ne ulazi u produkcijski bundle.
 const UiKit = import.meta.env.DEV ? lazy(() => import('./routes/dev/UiKit')) : null;
@@ -40,6 +42,8 @@ export function App() {
           <Route path="/" element={<Home />} />
           <Route path="/prijava" element={<AuthPage mode="sign-in" />} />
           <Route path="/registracija" element={<AuthPage mode="sign-up" />} />
+          <Route path="/platform" element={<PlatformPage />} />
+          <Route path="/pozivnica" element={<InvitationPage />} />
           <Route path="/s/:slug" element={<PublicStudioPage />} />
 
           <Route path="/app/:slug" element={<OwnerLayout />}>

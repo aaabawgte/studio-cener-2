@@ -14,6 +14,7 @@ import {
   listBookings,
 } from './bookings/routes';
 import { BookingCoordinator } from './durable-objects/booking-coordinator';
+import { acceptStudioInvitation, createPlatformStudio, listPlatformStudios, updateStudioLicense } from './platform/routes';
 import {
   createService,
   getPublicStudio,
@@ -82,6 +83,10 @@ app.post('/api/studios/:slug/bookings/:bookingId/cancel', cancelBooking);
 app.get('/api/studios/:slug/blocked-slots', listBlockedSlots);
 app.post('/api/studios/:slug/blocked-slots', createBlockedSlot);
 app.delete('/api/studios/:slug/blocked-slots/:blockId', deleteBlockedSlot);
+app.get('/api/platform/studios', listPlatformStudios);
+app.post('/api/platform/studios', createPlatformStudio);
+app.put('/api/platform/studios/:studioId/license', updateStudioLicense);
+app.post('/api/invitations/accept', acceptStudioInvitation);
 
 app.notFound((context) => context.json<ApiErrorBody>({ code: 'NOT_FOUND', message: 'Resource not found.' }, 404));
 

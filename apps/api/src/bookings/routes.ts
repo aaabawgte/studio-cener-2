@@ -82,9 +82,12 @@ async function getSetup(context: ApiContext, slug: string, serviceId: string): P
      FROM studios s
      JOIN bookable_resources br ON br.studio_id = s.id AND br.status = 'active'
      JOIN services sv ON sv.studio_id = s.id AND sv.id = ?2 AND sv.status = 'active'
+     JOIN studio_licenses sl ON sl.studio_id = s.id
+       AND ((sl.status IN ('trial', 'active') AND sl.expires_at > ?3)
+         OR (sl.status = 'grace' AND sl.grace_ends_at > ?3))
      WHERE s.slug = ?1 COLLATE NOCASE AND s.status = 'active'
      ORDER BY br.sort_order, br.id LIMIT 1`,
-  ).bind(slug.trim().toLowerCase(), serviceId).first<BookingSetup>();
+  ).bind(slug.trim().toLowerCase(), serviceId, Date.now()).first<BookingSetup>();
 }
 
 export async function getBookingAvailability(context: ApiContext) {

@@ -7,7 +7,8 @@
   "vars": {
     "ENVIRONMENT": "local",
     "AUTH_BASE_URL": "http://localhost:8787",
-    "TRUSTED_ORIGINS": "http://localhost:5173"
+    "TRUSTED_ORIGINS": "http://localhost:5173",
+    "PLATFORM_ADMIN_EMAILS": "admin@example.test"
   },
   "d1_databases": [
     {

@@ -1,12 +1,13 @@
-import { blockedSlotSchema, bookingAvailabilitySchema, bookingSchema, healthResponseSchema, serviceSchema } from '@studio/contracts';
+import { blockedSlotSchema, bookingAvailabilitySchema, bookingSchema, healthResponseSchema, platformStudioCreatedSchema, serviceSchema } from '@studio/contracts';
 import { env, exports } from 'cloudflare:workers';
 import { beforeAll, describe, expect, it } from 'vitest';
 import identityMigration from '../../../db/migrations/0001_identity_and_tenancy.sql?raw';
 import catalogMigration from '../../../db/migrations/0002_studio_catalog.sql?raw';
 import bookingMigration from '../../../db/migrations/0003_booking_engine.sql?raw';
+import platformMigration from '../../../db/migrations/0004_platform_onboarding.sql?raw';
 
 beforeAll(async () => {
-  const statements = `${identityMigration}\n${catalogMigration}\n${bookingMigration}`
+  const statements = `${identityMigration}\n${catalogMigration}\n${bookingMigration}\n${platformMigration}`
     .split(';')
     .map((statement) => statement.trim())
     .filter(Boolean)
@@ -90,6 +91,10 @@ describe('Studio Cener API foundation', () => {
         `INSERT INTO memberships (id, studio_id, user_id, role, status, created_at, updated_at)
          VALUES (?1, ?2, ?3, 'owner', 'active', ?4, ?4)`,
       ).bind('membership_a', 'studio_a', user.id, now),
+      env.DB.prepare(
+        `INSERT INTO studio_licenses (id, studio_id, plan, status, starts_at, expires_at, max_managers, features_json, created_by_user_id, created_at, updated_at)
+         VALUES (?1, ?2, 'pro', 'active', ?3, ?4, 3, '{}', ?5, ?3, ?3)`,
+      ).bind('license_a', 'studio_a', now, now + 365 * 86_400_000, user.id),
     ]);
 
     const ownStudioResponse = await exports.default.fetch(new Request(
@@ -307,5 +312,77 @@ describe('Studio Cener API foundation', () => {
       'SELECT COUNT(*) AS count FROM audit_logs WHERE studio_id = ?1',
     ).bind('studio_a').first<{ count: number }>();
     expect(auditCount?.count).toBe(8);
+
+    const createManagedStudioResponse = await exports.default.fetch(new Request(
+      'https://api.example.test/api/platform/studios',
+      {
+        method: 'POST',
+        headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Managed Studio',
+          slug: 'managed-studio',
+          ownerEmail: 'managed-owner@example.test',
+          timezone: 'Europe/Zagreb',
+          currency: 'EUR',
+          plan: 'pro',
+          expiresAt: new Date(Date.now() + 365 * 86_400_000).toISOString(),
+          hostname: 'booking.managed-studio.test',
+        }),
+      },
+    ));
+    expect(createManagedStudioResponse.status).toBe(201);
+    const managedStudio = platformStudioCreatedSchema.parse(await createManagedStudioResponse.json());
+    expect(managedStudio.studio).toMatchObject({ slug: 'managed-studio', ownerEmail: 'managed-owner@example.test' });
+    expect(managedStudio.studio.domain).toMatchObject({ hostname: 'booking.managed-studio.test', status: 'pending' });
+
+    const renewedExpiry = new Date(Date.now() + 730 * 86_400_000).toISOString();
+    const renewLicenseResponse = await exports.default.fetch(new Request(
+      `https://api.example.test/api/platform/studios/${managedStudio.studio.id}/license`,
+      {
+        method: 'PUT',
+        headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ plan: 'pro', status: 'active', expiresAt: renewedExpiry }),
+      },
+    ));
+    expect(renewLicenseResponse.status).toBe(200);
+    await expect(renewLicenseResponse.json()).resolves.toMatchObject({
+      id: managedStudio.studio.id,
+      license: { plan: 'pro', status: 'active', expiresAt: renewedExpiry },
+    });
+
+    const forbiddenPlatformResponse = await exports.default.fetch(new Request(
+      'https://api.example.test/api/platform/studios',
+      { headers: { Cookie: artistCookie ?? '' } },
+    ));
+    expect(forbiddenPlatformResponse.status).toBe(403);
+
+    const managedOwnerSignup = await exports.default.fetch(new Request('https://api.example.test/api/auth/sign-up/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'https://api.example.test' },
+      body: JSON.stringify({
+        name: 'Managed Owner',
+        email: 'managed-owner@example.test',
+        password: 'managed-owner-correct-password',
+      }),
+    }));
+    expect(managedOwnerSignup.status).toBe(200);
+    const managedOwnerCookie = managedOwnerSignup.headers.get('set-cookie')?.split(';', 1)[0];
+    const acceptInvitationResponse = await exports.default.fetch(new Request(
+      'https://api.example.test/api/invitations/accept',
+      {
+        method: 'POST',
+        headers: { Cookie: managedOwnerCookie ?? '', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: managedStudio.invitationToken }),
+      },
+    ));
+    expect(acceptInvitationResponse.status).toBe(200);
+    await expect(acceptInvitationResponse.json()).resolves.toEqual({ studioSlug: 'managed-studio', role: 'owner' });
+
+    const managedViewerResponse = await exports.default.fetch(new Request(
+      'https://api.example.test/api/studios/managed-studio/viewer-context',
+      { headers: { Cookie: managedOwnerCookie ?? '' } },
+    ));
+    expect(managedViewerResponse.status).toBe(200);
+    await expect(managedViewerResponse.json()).resolves.toMatchObject({ membership: { role: 'owner' } });
   });
 });
