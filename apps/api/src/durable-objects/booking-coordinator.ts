@@ -168,6 +168,11 @@ export class BookingCoordinator extends DurableObject<Env> {
            VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'applied', ?7)`,
         ).bind(crypto.randomUUID(), command.studioId, command.promoId, command.artistUserId, command.bookingId, command.discountMinor, command.now)] : []),
         this.env.DB.prepare(
+          `UPDATE waitlist_entries SET status='converted',updated_at=?1
+           WHERE studio_id=?2 AND user_id=?3 AND service_id=?4 AND resource_id=?5
+             AND day_start_utc<=?6 AND day_end_utc>?6 AND status IN ('active','notified')`,
+        ).bind(command.now, command.studioId, command.artistUserId, command.serviceId, command.resourceId, command.startAtUtc),
+        this.env.DB.prepare(
           `INSERT INTO booking_events (id, studio_id, booking_id, actor_user_id, event_type, payload_json, created_at)
            VALUES (?1, ?2, ?3, ?4, 'created', ?5, ?6)`,
         ).bind(crypto.randomUUID(), command.studioId, command.bookingId, command.artistUserId, JSON.stringify({
@@ -244,6 +249,20 @@ export class BookingCoordinator extends DurableObject<Env> {
         `UPDATE promo_redemptions SET status='reversed', reversed_at=?1
          WHERE studio_id=?2 AND booking_id=?3 AND status='applied'`,
       ).bind(command.now, command.studioId, command.bookingId),
+      this.env.DB.prepare(
+        `INSERT INTO notifications (id,studio_id,user_id,type,title,body,entity_type,entity_id,created_at)
+         SELECT lower(hex(randomblob(16))),w.studio_id,w.user_id,'waitlist_slot_available','Oslobodio se termin',
+           'Oslobodio se termin za ' || w.service_name_snapshot || ' na datum ' || w.desired_date || '. Rezervirajte ga dok je dostupan.',
+           'waitlist_entry',w.id,?1
+         FROM waitlist_entries w
+         WHERE w.studio_id=?2 AND w.resource_id=?3 AND w.service_id=?4
+           AND w.day_start_utc<=?5 AND w.day_end_utc>?5 AND w.day_end_utc>?1 AND w.status='active'`,
+      ).bind(command.now, command.studioId, command.resourceId, booking.service_id, booking.start_at_utc),
+      this.env.DB.prepare(
+        `UPDATE waitlist_entries SET status='notified',notification_count=notification_count+1,last_notified_at=?1,updated_at=?1
+         WHERE studio_id=?2 AND resource_id=?3 AND service_id=?4
+           AND day_start_utc<=?5 AND day_end_utc>?5 AND day_end_utc>?1 AND status='active'`,
+      ).bind(command.now, command.studioId, command.resourceId, booking.service_id, booking.start_at_utc),
       this.env.DB.prepare(
         `INSERT INTO booking_events (id, studio_id, booking_id, actor_user_id, event_type, payload_json, created_at)
          VALUES (?1, ?2, ?3, ?4, 'cancelled', ?5, ?6)`,

@@ -475,3 +475,37 @@ export const promoQuoteSchema = z.object({
 });
 export type PromoQuoteRequest = z.infer<typeof promoQuoteRequestSchema>;
 export type PromoQuote = z.infer<typeof promoQuoteSchema>;
+
+export const waitlistStatusSchema = z.enum(['active', 'notified', 'cancelled', 'converted', 'expired']);
+export const waitlistEntrySchema = z.object({
+  id: z.string().min(1),
+  userId: z.string().min(1),
+  artistName: z.string().min(1),
+  artistEmail: z.email(),
+  serviceId: z.string().min(1),
+  serviceName: z.string().min(1),
+  desiredDate: z.iso.date(),
+  status: waitlistStatusSchema,
+  notificationCount: z.number().int().min(0),
+  lastNotifiedAt: z.iso.datetime({ offset: true }).nullable(),
+  createdAt: z.iso.datetime({ offset: true }),
+});
+export type WaitlistEntry = z.infer<typeof waitlistEntrySchema>;
+
+export const waitlistCreateSchema = z.object({
+  serviceId: z.string().min(1),
+  desiredDate: z.iso.date(),
+});
+export type WaitlistCreate = z.infer<typeof waitlistCreateSchema>;
+
+export const notificationSchema = z.object({
+  id: z.string().min(1),
+  type: z.enum(['waitlist_slot_available', 'booking_created', 'booking_cancelled', 'system']),
+  title: z.string().min(1).max(150),
+  body: z.string().min(1).max(1000),
+  entityType: z.string().nullable(),
+  entityId: z.string().nullable(),
+  readAt: z.iso.datetime({ offset: true }).nullable(),
+  createdAt: z.iso.datetime({ offset: true }),
+});
+export type Notification = z.infer<typeof notificationSchema>;

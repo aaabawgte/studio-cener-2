@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useOutletContext } from 'react-router';
 import { createBooking, fetchBookingAvailability, validateBookingPromo } from '../../features/bookings/booking-api';
 import type { PromoQuote } from '@studio/contracts';
+import { joinWaitlist } from '../../features/waitlist/waitlist-api';
 import { fetchPublicStudio } from '../../features/catalog/catalog-api';
 import type { StudioViewerContext } from '../../features/studio/types';
 import { useAsync } from '../../lib/useAsync';
@@ -29,6 +30,7 @@ export function BookingPage() {
   const [promoQuote, setPromoQuote] = useState<PromoQuote | null>(null);
   const [promoError, setPromoError] = useState<string | null>(null);
   const [checkingPromo, setCheckingPromo] = useState(false);
+  const [joiningWaitlist, setJoiningWaitlist] = useState(false);
 
   useEffect(() => {
     if (!serviceId && catalog.data?.services[0]) setServiceId(catalog.data.services[0].id);
@@ -73,6 +75,14 @@ export function BookingPage() {
     finally { setCheckingPromo(false); }
   }
 
+  async function joinCurrentWaitlist() {
+    if (!serviceId) return;
+    setJoiningWaitlist(true);
+    try { await joinWaitlist(ctx.studio.slug, { serviceId, desiredDate: date }); toast.success('Dodani ste na listu čekanja.'); }
+    catch (caught) { setError(caught instanceof Error ? caught.message : 'Prijava na listu čekanja nije uspjela.'); }
+    finally { setJoiningWaitlist(false); }
+  }
+
   return (
     <>
       <PageHeader title="Rezerviraj termin" description="Odaberite uslugu i jedan od trenutno slobodnih termina." />
@@ -94,7 +104,7 @@ export function BookingPage() {
           {availability.status === 'loading' ? <LoadingState className="py-10" /> : null}
           {availability.status === 'error' ? <Alert tone="danger" className="mt-4">Termine trenutno nije moguće učitati.</Alert> : null}
           {availability.status === 'success' && availability.data?.slots.length === 0 ? (
-            <EmptyState size="compact" icon="calendar" title="Nema slobodnih termina" description="Odaberite drugi datum." />
+            <EmptyState size="compact" icon="calendar" title="Nema slobodnih termina" description="Odaberite drugi datum ili se prijavite na listu čekanja." action={<Button variant="secondary" loading={joiningWaitlist} onClick={() => void joinCurrentWaitlist()}>Prijavi me na listu</Button>} />
           ) : null}
           {availability.status === 'success' && availability.data?.slots.length ? (
             <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4">

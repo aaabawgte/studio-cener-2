@@ -52,6 +52,8 @@ import {
   updateHourPackage,
 } from './value/routes';
 import { createPromoCode, listPromoCodes, updatePromoCode, validatePromoCode } from './promos/routes';
+import { cancelWaitlistEntry, createWaitlistEntry, listOwnWaitlist, listStudioWaitlist } from './waitlist/routes';
+import { listNotifications, markNotificationRead } from './notifications/routes';
 
 type AppEnvironment = {
   Bindings: AuthBindings;
@@ -142,6 +144,12 @@ app.get('/api/studios/:slug/promo-codes', listPromoCodes);
 app.post('/api/studios/:slug/promo-codes', createPromoCode);
 app.put('/api/studios/:slug/promo-codes/:promoId', updatePromoCode);
 app.post('/api/studios/:slug/promo-codes/validate', validatePromoCode);
+app.get('/api/studios/:slug/waitlist', listStudioWaitlist);
+app.get('/api/studios/:slug/waitlist/me', listOwnWaitlist);
+app.post('/api/studios/:slug/waitlist', createWaitlistEntry);
+app.delete('/api/studios/:slug/waitlist/:entryId', cancelWaitlistEntry);
+app.get('/api/studios/:slug/notifications', listNotifications);
+app.patch('/api/studios/:slug/notifications/:notificationId/read', markNotificationRead);
 app.get('/api/platform/studios', listPlatformStudios);
 app.post('/api/platform/studios', createPlatformStudio);
 app.put('/api/platform/studios/:studioId/license', updateStudioLicense);

@@ -25,6 +25,7 @@ export const ownerNav: NavSection[] = [
       { id: 'overview', label: 'Pregled', icon: 'home', path: '', bottomNav: true },
       { id: 'calendar', label: 'Kalendar', icon: 'calendar', path: 'kalendar', bottomNav: true, requires: 'bookings.view' },
       { id: 'bookings', label: 'Rezervacije', shortLabel: 'Termini', icon: 'bookings', path: 'termini', bottomNav: true, requires: 'bookings.view' },
+      { id: 'waitlist', label: 'Lista čekanja', icon: 'hourglass', path: 'lista-cekanja', requires: 'bookings.view' },
       { id: 'analytics', label: 'Analitika', icon: 'chart', path: 'analitika', bottomNav: true, requires: 'analytics.view' },
     ],
   },

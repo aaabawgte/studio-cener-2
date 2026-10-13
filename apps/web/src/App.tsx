@@ -23,6 +23,9 @@ import { AccessPage } from './routes/owner/AccessPage';
 import { ValuePage } from './routes/owner/ValuePage';
 import { CreditsPage } from './routes/artist/CreditsPage';
 import { PromoCodesPage } from './routes/owner/PromoCodesPage';
+import { WaitlistPage } from './routes/artist/WaitlistPage';
+import { NotificationsPage } from './routes/artist/NotificationsPage';
+import { OwnerWaitlistPage } from './routes/owner/WaitlistPage';
 
 // Dev-only katalog komponenti; ne ulazi u produkcijski bundle.
 const UiKit = import.meta.env.DEV ? lazy(() => import('./routes/dev/UiKit')) : null;
@@ -32,8 +35,6 @@ const ownerRoutes: { id: string; path: string; description: string }[] = [
 ];
 
 const artistRoutes: { id: string; path: string; description: string }[] = [
-  { id: 'notifications', path: 'obavijesti', description: 'Potvrde, promjene i podsjetnici.' },
-  { id: 'waitlist', path: 'lista-cekanja', description: 'Termini na koje čekate oslobađanje.' },
   { id: 'profile', path: 'profil', description: 'Vaši podaci i postavke obavijesti.' },
 ];
 
@@ -64,6 +65,7 @@ export function App() {
             <Route path="pristupi" element={<AccessPage />} />
             <Route path="paketi-krediti" element={<ValuePage />} />
             <Route path="promo-kodovi" element={<PromoCodesPage />} />
+            <Route path="lista-cekanja" element={<OwnerWaitlistPage />} />
             <Route path="*" element={<NotFound inline />} />
           </Route>
 
@@ -75,6 +77,8 @@ export function App() {
             <Route path="rezerviraj" element={<BookingPage />} />
             <Route path="termini" element={<BookingsPage />} />
             <Route path="krediti" element={<CreditsPage />} />
+            <Route path="obavijesti" element={<NotificationsPage />} />
+            <Route path="lista-cekanja" element={<WaitlistPage />} />
             <Route path="*" element={<NotFound inline />} />
           </Route>
 
