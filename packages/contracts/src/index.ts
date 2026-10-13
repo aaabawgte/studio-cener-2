@@ -19,6 +19,7 @@ export const studioPermissionSchema = z.enum([
   'hours.manage',
   'team.manage',
   'portfolio.manage',
+  'credits.manage',
   'analytics.view',
   'studio.settings.manage',
 ]);
@@ -318,3 +319,103 @@ export const managerInvitationCreatedSchema = z.object({
   invitationToken: z.string().min(32),
 });
 export type ManagerInvitationCreated = z.infer<typeof managerInvitationCreatedSchema>;
+
+export const hourPackageStatusSchema = z.enum(['active', 'archived']);
+export const hourPackageSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1).max(100),
+  description: z.string().max(500).nullable(),
+  includedMinutes: z.number().int().min(15).max(60_000),
+  priceMinor: z.number().int().min(0),
+  currency: z.string().regex(/^[A-Z]{3}$/),
+  validityDays: z.number().int().min(1).max(3650).nullable(),
+  status: hourPackageStatusSchema,
+  sortOrder: z.number().int().min(0),
+});
+export type HourPackage = z.infer<typeof hourPackageSchema>;
+
+export const hourPackageWriteSchema = z.object({
+  name: z.string().trim().min(2, 'Unesite naziv paketa.').max(100),
+  description: z.string().trim().max(500).nullable().optional(),
+  includedMinutes: z.number().int().min(15).max(60_000).refine((value) => value % 15 === 0, 'Minute moraju biti u koracima od 15.'),
+  priceMinor: z.number().int().min(0).max(100_000_000),
+  validityDays: z.number().int().min(1).max(3650).nullable().optional(),
+  status: hourPackageStatusSchema.optional(),
+  sortOrder: z.number().int().min(0).max(10_000).optional(),
+});
+export type HourPackageWrite = z.infer<typeof hourPackageWriteSchema>;
+
+export const valueArtistSchema = z.object({
+  userId: z.string().min(1),
+  name: z.string().min(1),
+  email: z.email(),
+});
+export type ValueArtist = z.infer<typeof valueArtistSchema>;
+
+export const packageBalanceSchema = z.object({
+  id: z.string().min(1),
+  packageId: z.string().min(1),
+  packageName: z.string().min(1),
+  grantedMinutes: z.number().int().positive(),
+  remainingMinutes: z.number().int().min(0),
+  expiresAt: z.iso.datetime({ offset: true }).nullable(),
+  status: z.enum(['active', 'exhausted', 'expired']),
+  createdAt: z.iso.datetime({ offset: true }),
+});
+export type PackageBalance = z.infer<typeof packageBalanceSchema>;
+
+export const packageLedgerKindSchema = z.enum(['grant', 'use', 'refund', 'adjustment', 'expiry']);
+export const packageLedgerEntrySchema = z.object({
+  id: z.string().min(1),
+  packageBalanceId: z.string().min(1),
+  amountMinutes: z.number().int().refine((value) => value !== 0),
+  kind: packageLedgerKindSchema,
+  reason: z.string().min(2).max(300),
+  actorName: z.string().min(1),
+  createdAt: z.iso.datetime({ offset: true }),
+});
+export type PackageLedgerEntry = z.infer<typeof packageLedgerEntrySchema>;
+
+export const creditLedgerKindSchema = z.enum(['grant', 'use', 'refund', 'adjustment']);
+export const creditLedgerEntrySchema = z.object({
+  id: z.string().min(1),
+  amountMinor: z.number().int().refine((value) => value !== 0),
+  currency: z.string().regex(/^[A-Z]{3}$/),
+  kind: creditLedgerKindSchema,
+  reason: z.string().min(2).max(300),
+  actorName: z.string().min(1),
+  createdAt: z.iso.datetime({ offset: true }),
+});
+export type CreditLedgerEntry = z.infer<typeof creditLedgerEntrySchema>;
+
+export const artistValueAccountSchema = z.object({
+  artist: valueArtistSchema,
+  creditBalanceMinor: z.number().int().min(0),
+  currency: z.string().regex(/^[A-Z]{3}$/),
+  packageBalances: z.array(packageBalanceSchema),
+  packageLedger: z.array(packageLedgerEntrySchema),
+  creditLedger: z.array(creditLedgerEntrySchema),
+});
+export type ArtistValueAccount = z.infer<typeof artistValueAccountSchema>;
+
+export const packageGrantSchema = z.object({
+  userId: z.string().min(1),
+  packageId: z.string().min(1),
+  reason: z.string().trim().min(2, 'Unesite razlog dodjele.').max(300),
+});
+export type PackageGrant = z.infer<typeof packageGrantSchema>;
+
+export const packageEntryCreateSchema = z.object({
+  amountMinutes: z.number().int().min(-60_000).max(60_000).refine((value) => value !== 0 && value % 15 === 0, 'Promjena mora biti u koracima od 15 minuta.'),
+  kind: z.enum(['use', 'refund', 'adjustment']),
+  reason: z.string().trim().min(2, 'Unesite razlog promjene.').max(300),
+});
+export type PackageEntryCreate = z.infer<typeof packageEntryCreateSchema>;
+
+export const creditEntryCreateSchema = z.object({
+  userId: z.string().min(1),
+  amountMinor: z.number().int().min(-100_000_000).max(100_000_000).refine((value) => value !== 0),
+  kind: creditLedgerKindSchema,
+  reason: z.string().trim().min(2, 'Unesite razlog promjene.').max(300),
+});
+export type CreditEntryCreate = z.infer<typeof creditEntryCreateSchema>;

@@ -1,4 +1,4 @@
-import { blockedSlotSchema, bookingAvailabilitySchema, bookingSchema, healthResponseSchema, managerInvitationCreatedSchema, platformStudioCreatedSchema, portfolioProjectSchema, serviceSchema, studioAccessSchema, teamMemberSchema } from '@studio/contracts';
+import { artistValueAccountSchema, blockedSlotSchema, bookingAvailabilitySchema, bookingSchema, healthResponseSchema, hourPackageSchema, managerInvitationCreatedSchema, platformStudioCreatedSchema, portfolioProjectSchema, serviceSchema, studioAccessSchema, teamMemberSchema } from '@studio/contracts';
 import { env, exports } from 'cloudflare:workers';
 import { beforeAll, describe, expect, it } from 'vitest';
 import identityMigration from '../../../db/migrations/0001_identity_and_tenancy.sql?raw';
@@ -7,14 +7,15 @@ import bookingMigration from '../../../db/migrations/0003_booking_engine.sql?raw
 import platformMigration from '../../../db/migrations/0004_platform_onboarding.sql?raw';
 import contentMigration from '../../../db/migrations/0005_studio_content.sql?raw';
 import accessMigration from '../../../db/migrations/0006_studio_access_management.sql?raw';
+import valueMigration from '../../../db/migrations/0007_value_ledger.sql?raw';
 
 beforeAll(async () => {
-  const statements = `${identityMigration}\n${catalogMigration}\n${bookingMigration}\n${platformMigration}\n${contentMigration}\n${accessMigration}`
-    .split(';')
-    .map((statement) => statement.trim())
-    .filter(Boolean)
-    .map((statement) => env.DB.prepare(statement));
+  const sql = `${identityMigration}\n${catalogMigration}\n${bookingMigration}\n${platformMigration}\n${contentMigration}\n${accessMigration}\n${valueMigration}`;
+  const triggers = sql.match(/CREATE TRIGGER[\s\S]*?END;/g) ?? [];
+  const statements = sql.replace(/CREATE TRIGGER[\s\S]*?END;/g, '')
+    .split(';').map((statement) => statement.trim()).filter(Boolean).map((statement) => env.DB.prepare(statement));
   await env.DB.batch(statements);
+  for (const trigger of triggers) await env.DB.prepare(trigger).run();
 });
 
 describe('Studio Cener API foundation', () => {
@@ -35,6 +36,60 @@ describe('Studio Cener API foundation', () => {
     const stub = env.BOOKING_COORDINATOR.getByName('studio_test:resource_test');
 
     await expect(stub.health()).resolves.toEqual({ status: 'ok', schemaVersion: 1 });
+  });
+
+  it('initializes the value coordinator', async () => {
+    await expect(env.VALUE_COORDINATOR.getByName('studio:value-user').health()).resolves.toEqual({ status: 'ok', schemaVersion: 1 });
+  });
+
+  it('keeps package minutes and prepaid credit auditable and non-negative', async () => {
+    const signup = async (email: string, name: string) => {
+      const response = await exports.default.fetch(new Request('https://api.example.test/api/auth/sign-up/email', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://api.example.test' },
+        body: JSON.stringify({ name, email, password: 'correct-horse-value-password' }),
+      }));
+      expect(response.status).toBe(200);
+      const user = await env.DB.prepare('SELECT id FROM user WHERE email=?1').bind(email).first<{ id: string }>();
+      return { cookie: response.headers.get('set-cookie')?.split(';', 1)[0] ?? '', userId: user!.id };
+    };
+    const owner = await signup('value-owner@example.test', 'Value Owner');
+    const artist = await signup('value-artist@example.test', 'Value Artist');
+    const now = Date.now();
+    await env.DB.batch([
+      env.DB.prepare(`INSERT INTO studios (id,slug,name,timezone,currency,status,created_at,updated_at) VALUES ('value_studio','value-studio','Value Studio','Europe/Zagreb','EUR','active',?1,?1)`).bind(now),
+      env.DB.prepare(`INSERT INTO memberships (id,studio_id,user_id,role,status,created_at,updated_at) VALUES ('value_owner_membership','value_studio',?1,'owner','active',?2,?2)`).bind(owner.userId, now),
+      env.DB.prepare(`INSERT INTO memberships (id,studio_id,user_id,role,status,created_at,updated_at) VALUES ('value_artist_membership','value_studio',?1,'artist','active',?2,?2)`).bind(artist.userId, now),
+    ]);
+    const ownerRequest = (path: string, body: unknown, key?: string) => exports.default.fetch(new Request(`https://api.example.test${path}`, {
+      method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json', ...(key ? { 'Idempotency-Key': key } : {}) }, body: JSON.stringify(body),
+    }));
+    const packageResponse = await ownerRequest('/api/studios/value-studio/hour-packages', { name: 'Paket 10 sati', includedMinutes: 600, priceMinor: 50000, validityDays: 365 });
+    expect(packageResponse.status).toBe(201);
+    const pkg = hourPackageSchema.parse(await packageResponse.json());
+    const grantBody = { userId: artist.userId, packageId: pkg.id, reason: 'Plaćeno u studiju' };
+    const grant = await ownerRequest('/api/studios/value-studio/value/package-grants', grantBody, 'value-grant-key-0001');
+    expect(grant.status).toBe(201);
+    const granted = artistValueAccountSchema.parse(await grant.json());
+    expect(granted.packageBalances[0]?.remainingMinutes).toBe(600);
+    const replay = await ownerRequest('/api/studios/value-studio/value/package-grants', grantBody, 'value-grant-key-0001');
+    expect(replay.status).toBe(200);
+    expect(artistValueAccountSchema.parse(await replay.json()).packageBalances).toHaveLength(1);
+
+    const balanceId = granted.packageBalances[0]!.id;
+    const consume = (key: string) => ownerRequest(`/api/studios/value-studio/value/package-balances/${balanceId}/entries`, { amountMinutes: -450, kind: 'use', reason: 'Termin' }, key);
+    const consumed = await Promise.all([consume('package-use-key-0001'), consume('package-use-key-0002')]);
+    expect(consumed.map((response) => response.status).sort()).toEqual([201, 409]);
+
+    const creditGrant = await ownerRequest('/api/studios/value-studio/value/credit-entries', { userId: artist.userId, amountMinor: 10000, kind: 'grant', reason: 'Uplata gotovine' }, 'credit-grant-key-0001');
+    expect(creditGrant.status).toBe(201);
+    expect(artistValueAccountSchema.parse(await creditGrant.json()).creditBalanceMinor).toBe(10000);
+    const overspend = await ownerRequest('/api/studios/value-studio/value/credit-entries', { userId: artist.userId, amountMinor: -11000, kind: 'use', reason: 'Preskupi termin' }, 'credit-use-key-0001');
+    expect(overspend.status).toBe(409);
+
+    const own = await exports.default.fetch(new Request('https://api.example.test/api/studios/value-studio/value/me', { headers: { Cookie: artist.cookie } }));
+    expect(own.status).toBe(200);
+    expect(artistValueAccountSchema.parse(await own.json())).toMatchObject({ artist: { userId: artist.userId }, creditBalanceMinor: 10000 });
+    await expect(env.DB.prepare('UPDATE credit_ledger SET reason=?1 WHERE studio_id=?2').bind('Promijenjeno', 'value_studio').run()).rejects.toThrow(/append-only/);
   });
 
   it('uses the shared API error shape for unknown routes', async () => {

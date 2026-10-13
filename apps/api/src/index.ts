@@ -14,6 +14,7 @@ import {
   listBookings,
 } from './bookings/routes';
 import { BookingCoordinator } from './durable-objects/booking-coordinator';
+import { ValueCoordinator } from './durable-objects/value-coordinator';
 import { acceptStudioInvitation, createPlatformStudio, listPlatformStudios, updateStudioLicense } from './platform/routes';
 import {
   createService,
@@ -39,6 +40,17 @@ import {
   updateTeamMember,
   uploadStudioImage,
 } from './studios/content';
+import {
+  createCreditEntry,
+  createHourPackage,
+  createPackageEntry,
+  getManagedValueAccount,
+  getOwnValueAccount,
+  grantPackage,
+  listHourPackages,
+  listValueArtists,
+  updateHourPackage,
+} from './value/routes';
 
 type AppEnvironment = {
   Bindings: AuthBindings;
@@ -116,6 +128,15 @@ app.post('/api/studios/:slug/bookings/:bookingId/cancel', cancelBooking);
 app.get('/api/studios/:slug/blocked-slots', listBlockedSlots);
 app.post('/api/studios/:slug/blocked-slots', createBlockedSlot);
 app.delete('/api/studios/:slug/blocked-slots/:blockId', deleteBlockedSlot);
+app.get('/api/studios/:slug/hour-packages', listHourPackages);
+app.post('/api/studios/:slug/hour-packages', createHourPackage);
+app.put('/api/studios/:slug/hour-packages/:packageId', updateHourPackage);
+app.get('/api/studios/:slug/value/artists', listValueArtists);
+app.get('/api/studios/:slug/value/accounts/:userId', getManagedValueAccount);
+app.get('/api/studios/:slug/value/me', getOwnValueAccount);
+app.post('/api/studios/:slug/value/package-grants', grantPackage);
+app.post('/api/studios/:slug/value/package-balances/:balanceId/entries', createPackageEntry);
+app.post('/api/studios/:slug/value/credit-entries', createCreditEntry);
 app.get('/api/platform/studios', listPlatformStudios);
 app.post('/api/platform/studios', createPlatformStudio);
 app.put('/api/platform/studios/:studioId/license', updateStudioLicense);
@@ -135,5 +156,5 @@ app.onError((error, context) => {
   return context.json<ApiErrorBody>({ code: 'INTERNAL_ERROR', message: 'Internal server error.' }, 500);
 });
 
-export { BookingCoordinator };
+export { BookingCoordinator, ValueCoordinator };
 export default app;

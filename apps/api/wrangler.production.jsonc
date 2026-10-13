@@ -28,6 +28,10 @@
       {
         "name": "BOOKING_COORDINATOR",
         "class_name": "BookingCoordinator"
+      },
+      {
+        "name": "VALUE_COORDINATOR",
+        "class_name": "ValueCoordinator"
       }
     ]
   },
@@ -35,6 +39,10 @@
     {
       "tag": "v1",
       "new_sqlite_classes": ["BookingCoordinator"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["ValueCoordinator"]
     }
   ],
   "observability": {
