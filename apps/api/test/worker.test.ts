@@ -1,4 +1,4 @@
-import { artistValueAccountSchema, blockedSlotSchema, bookingAvailabilitySchema, bookingSchema, healthResponseSchema, hourPackageSchema, managerInvitationCreatedSchema, notificationSchema, platformStudioCreatedSchema, portfolioProjectSchema, promoCodeSchema, promoQuoteSchema, serviceSchema, studioAccessSchema, studioAnalyticsSchema, studioOverviewSchema, teamMemberSchema, waitlistEntrySchema } from '@studio/contracts';
+import { artistValueAccountSchema, blockedSlotSchema, bookingAvailabilitySchema, bookingDetailSchema, bookingSchema, healthResponseSchema, hourPackageSchema, managerInvitationCreatedSchema, notificationSchema, platformStudioCreatedSchema, portfolioProjectSchema, promoCodeSchema, promoQuoteSchema, serviceSchema, studioAccessSchema, studioAnalyticsSchema, studioOverviewSchema, teamMemberSchema, waitlistEntrySchema } from '@studio/contracts';
 import { env, exports } from 'cloudflare:workers';
 import { beforeAll, describe, expect, it } from 'vitest';
 import identityMigration from '../../../db/migrations/0001_identity_and_tenancy.sql?raw';
@@ -10,9 +10,10 @@ import accessMigration from '../../../db/migrations/0006_studio_access_managemen
 import valueMigration from '../../../db/migrations/0007_value_ledger.sql?raw';
 import promoMigration from '../../../db/migrations/0008_promo_codes.sql?raw';
 import waitlistMigration from '../../../db/migrations/0009_waitlist_notifications.sql?raw';
+import bookingNotesMigration from '../../../db/migrations/0010_booking_notes.sql?raw';
 
 beforeAll(async () => {
-  const sql = `${identityMigration}\n${catalogMigration}\n${bookingMigration}\n${platformMigration}\n${contentMigration}\n${accessMigration}\n${valueMigration}\n${promoMigration}\n${waitlistMigration}`;
+  const sql = `${identityMigration}\n${catalogMigration}\n${bookingMigration}\n${platformMigration}\n${contentMigration}\n${accessMigration}\n${valueMigration}\n${promoMigration}\n${waitlistMigration}\n${bookingNotesMigration}`;
   const triggers = sql.match(/CREATE TRIGGER[\s\S]*?END;/g) ?? [];
   const statements = sql.replace(/CREATE TRIGGER[\s\S]*?END;/g, '')
     .split(';').map((statement) => statement.trim()).filter(Boolean).map((statement) => env.DB.prepare(statement));
@@ -586,10 +587,33 @@ describe('Studio Cener API foundation', () => {
     ).bind(managedBooking.id).first<{ actor_user_id: string }>();
     expect(completionEvent?.actor_user_id).toBe(user.id);
 
+    const artistDetailResponse = await exports.default.fetch(new Request(
+      `https://api.example.test/api/studios/studio-a/bookings/${managedBooking.id}`,
+      { headers: { Cookie: artistCookie ?? '' } },
+    ));
+    expect(artistDetailResponse.status).toBe(403);
+    const noteResponse = await exports.default.fetch(new Request(
+      `https://api.example.test/api/studios/studio-a/bookings/${managedBooking.id}/notes`,
+      { method: 'POST', headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json' }, body: JSON.stringify({ body: 'Artist preferira tiši monitoring.' }) },
+    ));
+    expect(noteResponse.status).toBe(201);
+    const detailResponse = await exports.default.fetch(new Request(
+      `https://api.example.test/api/studios/studio-a/bookings/${managedBooking.id}`,
+      { headers: { Cookie: cookie ?? '' } },
+    ));
+    expect(detailResponse.status).toBe(200);
+    const detail = bookingDetailSchema.parse(await detailResponse.json());
+    expect(detail.booking.id).toBe(managedBooking.id);
+    expect(detail.timeline).toHaveLength(3);
+    expect(detail.timeline.map((entry) => entry.kind === 'event' ? entry.eventType : entry.body))
+      .toEqual(expect.arrayContaining(['created', 'completed', 'Artist preferira tiši monitoring.']));
+    await expect(env.DB.prepare('UPDATE booking_notes SET body=?1 WHERE booking_id=?2')
+      .bind('Promijenjeno', managedBooking.id).run()).rejects.toThrow(/append-only/);
+
     const auditCount = await env.DB.prepare(
       'SELECT COUNT(*) AS count FROM audit_logs WHERE studio_id = ?1',
     ).bind('studio_a').first<{ count: number }>();
-    expect(auditCount?.count).toBe(26);
+    expect(auditCount?.count).toBe(27);
 
     const createManagedStudioResponse = await exports.default.fetch(new Request(
       'https://api.example.test/api/platform/studios',

@@ -3,7 +3,10 @@ import {
   blockedSlotSchema,
   bookingAvailabilitySchema,
   bookingCreateSchema,
+  bookingDetailSchema,
+  bookingNoteCreateSchema,
   bookingStatusUpdateSchema,
+  bookingTimelineEntrySchema,
   managedBookingCreateSchema,
   bookingSchema,
   valueArtistSchema,
@@ -314,6 +317,78 @@ export async function listBookingArtists(context: ApiContext) {
      WHERE m.studio_id=?1 AND m.role='artist' AND m.status='active' ORDER BY u.name COLLATE NOCASE`,
   ).bind(access.value.studio.id).all();
   return context.json({ artists: result.results.map((row) => valueArtistSchema.parse(row)) });
+}
+
+type TimelineRow = {
+  id: string;
+  kind: 'event' | 'note';
+  event_type: 'created' | 'cancelled' | 'completed' | 'no_show' | null;
+  body: string | null;
+  actor_name: string | null;
+  created_at: number;
+};
+
+export async function getBookingDetail(context: ApiContext) {
+  const access = await resolveStudioAccess(context.env, context.req.raw, param(context, 'slug'), 'bookings.manage');
+  if (!access.ok) return context.json(access.error.body, access.error.status);
+  const booking = await context.env.DB.prepare(
+    `SELECT b.id,b.studio_id,b.resource_id,b.artist_user_id,b.service_id,b.start_at_utc,b.end_at_utc,b.status,
+      b.service_name_snapshot,b.duration_minutes_snapshot,b.price_minor_snapshot,b.subtotal_price_minor_snapshot,
+      b.discount_minor_snapshot,b.promo_code_id,b.promo_code_snapshot,b.currency_snapshot,b.request_fingerprint,b.created_at,
+      u.name AS artist_name,u.email AS artist_email
+     FROM bookings b JOIN user u ON u.id=b.artist_user_id
+     WHERE b.studio_id=?1 AND b.id=?2 LIMIT 1`,
+  ).bind(access.value.studio.id, param(context, 'bookingId')).first<StoredBooking & { artist_name: string; artist_email: string }>();
+  if (!booking) return context.json<ApiErrorBody>({ code: 'BOOKING_NOT_FOUND', message: 'Booking not found.' }, 404);
+  const timeline = await context.env.DB.prepare(
+    `SELECT e.id,'event' AS kind,e.event_type,NULL AS body,u.name AS actor_name,e.created_at
+     FROM booking_events e LEFT JOIN user u ON u.id=e.actor_user_id
+     WHERE e.studio_id=?1 AND e.booking_id=?2
+     UNION ALL
+     SELECT n.id,'note' AS kind,NULL AS event_type,n.body,u.name AS actor_name,n.created_at
+     FROM booking_notes n LEFT JOIN user u ON u.id=n.author_user_id
+     WHERE n.studio_id=?1 AND n.booking_id=?2
+     ORDER BY created_at`,
+  ).bind(access.value.studio.id, booking.id).all<TimelineRow>();
+  return context.json(bookingDetailSchema.parse({
+    booking: toBooking(booking),
+    timeline: timeline.results.map((entry) => bookingTimelineEntrySchema.parse(entry.kind === 'event'
+      ? { id: entry.id, kind: 'event', eventType: entry.event_type, actorName: entry.actor_name, createdAt: new Date(entry.created_at).toISOString() }
+      : { id: entry.id, kind: 'note', body: entry.body, actorName: entry.actor_name, createdAt: new Date(entry.created_at).toISOString() })),
+  }));
+}
+
+export async function createBookingNote(context: ApiContext) {
+  const access = await resolveStudioAccess(context.env, context.req.raw, param(context, 'slug'), 'bookings.manage');
+  if (!access.ok) return context.json(access.error.body, access.error.status);
+  let body: unknown;
+  try { body = await context.req.json(); } catch { body = undefined; }
+  const parsed = bookingNoteCreateSchema.safeParse(body);
+  if (!parsed.success) return context.json<ApiErrorBody>({ code: 'VALIDATION_ERROR', message: 'Bilješka mora imati između 1 i 1000 znakova.' }, 422);
+  const booking = await context.env.DB.prepare(
+    'SELECT id FROM bookings WHERE studio_id=?1 AND id=?2 LIMIT 1',
+  ).bind(access.value.studio.id, param(context, 'bookingId')).first<{ id: string }>();
+  if (!booking) return context.json<ApiErrorBody>({ code: 'BOOKING_NOT_FOUND', message: 'Booking not found.' }, 404);
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  await context.env.DB.batch([
+    context.env.DB.prepare(
+      `INSERT INTO booking_notes (id,studio_id,booking_id,author_user_id,body,created_at)
+       VALUES (?1,?2,?3,?4,?5,?6)`,
+    ).bind(id, access.value.studio.id, booking.id, access.value.actor.userId, parsed.data.body, now),
+    context.env.DB.prepare(
+      `INSERT INTO audit_logs (id,studio_id,actor_user_id,action,entity_type,entity_id,diff_json,request_id,created_at)
+       VALUES (?1,?2,?3,'booking.note_created','booking',?4,?5,?6,?7)`,
+    ).bind(crypto.randomUUID(), access.value.studio.id, access.value.actor.userId, booking.id,
+      JSON.stringify({ noteId: id }), context.get('requestId'), now),
+  ]);
+  return context.json(bookingTimelineEntrySchema.parse({
+    id,
+    kind: 'note',
+    body: parsed.data.body,
+    actorName: null,
+    createdAt: new Date(now).toISOString(),
+  }), 201);
 }
 
 export async function cancelBooking(context: ApiContext) {

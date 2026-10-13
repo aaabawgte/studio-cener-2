@@ -206,6 +206,30 @@ export const managedBookingCreateSchema = bookingCreateSchema.extend({ artistUse
 export type ManagedBookingCreate = z.infer<typeof managedBookingCreateSchema>;
 export const bookingStatusUpdateSchema = z.object({ status: z.enum(['completed', 'no_show']) });
 export type BookingStatusUpdate = z.infer<typeof bookingStatusUpdateSchema>;
+export const bookingNoteCreateSchema = z.object({ body: z.string().trim().min(1, 'Unesite bilješku.').max(1000) });
+export type BookingNoteCreate = z.infer<typeof bookingNoteCreateSchema>;
+export const bookingTimelineEntrySchema = z.discriminatedUnion('kind', [
+  z.object({
+    id: z.string().min(1),
+    kind: z.literal('event'),
+    eventType: z.enum(['created', 'cancelled', 'completed', 'no_show']),
+    actorName: z.string().nullable(),
+    createdAt: z.iso.datetime({ offset: true }),
+  }),
+  z.object({
+    id: z.string().min(1),
+    kind: z.literal('note'),
+    body: z.string().min(1).max(1000),
+    actorName: z.string().nullable(),
+    createdAt: z.iso.datetime({ offset: true }),
+  }),
+]);
+export type BookingTimelineEntry = z.infer<typeof bookingTimelineEntrySchema>;
+export const bookingDetailSchema = z.object({
+  booking: bookingSchema,
+  timeline: z.array(bookingTimelineEntrySchema),
+});
+export type BookingDetail = z.infer<typeof bookingDetailSchema>;
 
 export const bookingSlotSchema = z.object({
   startAtUtc: z.iso.datetime({ offset: true }),

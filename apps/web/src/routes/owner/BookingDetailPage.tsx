@@ -1,0 +1,82 @@
+import type { BookingTimelineEntry } from '@studio/contracts';
+import { Alert, Badge, Button, Card, EmptyState, Field, LoadingState, PageHeader, Textarea, buttonStyles, useToast } from '@studio/ui';
+import { useMemo, useState, type FormEvent } from 'react';
+import { Link, useOutletContext, useParams } from 'react-router';
+import { createBookingNote, fetchBookingDetail } from '../../features/bookings/booking-api';
+import type { StudioViewerContext } from '../../features/studio/types';
+import { useAsync } from '../../lib/useAsync';
+import { usePageTitle } from '../../lib/usePageTitle';
+
+const statusLabel = { confirmed: 'Potvrđen', cancelled: 'Otkazan', completed: 'Završen', no_show: 'Nije došao' } as const;
+const eventLabel = { created: 'Termin je kreiran', cancelled: 'Termin je otkazan', completed: 'Termin je završen', no_show: 'Artist nije došao' } as const;
+
+export function BookingDetailPage() {
+  usePageTitle('Detalji termina');
+  const ctx = useOutletContext<StudioViewerContext>();
+  const { bookingId = '' } = useParams();
+  const toast = useToast();
+  const result = useAsync((signal) => fetchBookingDetail(ctx.studio.slug, bookingId, signal), [ctx.studio.slug, bookingId]);
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const dateTime = useMemo(() => new Intl.DateTimeFormat('hr-HR', {
+    timeZone: ctx.studio.timezone,
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }), [ctx.studio.timezone]);
+  const money = useMemo(() => new Intl.NumberFormat('hr-HR', {
+    style: 'currency',
+    currency: ctx.studio.currency,
+  }), [ctx.studio.currency]);
+
+  async function submitNote(event: FormEvent) {
+    event.preventDefault();
+    const body = note.trim();
+    if (!body) return;
+    setSaving(true);
+    try {
+      await createBookingNote(ctx.studio.slug, bookingId, body);
+      setNote('');
+      toast.success('Interna bilješka je spremljena.');
+      result.reload();
+    } catch (caught: unknown) {
+      toast.error('Bilješka nije spremljena', caught instanceof Error ? caught.message : undefined);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (result.status === 'loading' && !result.data) return <LoadingState variant="rows" rows={4} />;
+  if (result.status === 'error' || !result.data) return <EmptyState icon="alert" title="Termin nije moguće učitati" action={<Link className={buttonStyles({ variant: 'secondary' })} to={`/app/${ctx.studio.slug}/termini`}>Natrag na rezervacije</Link>} />;
+  const { booking, timeline } = result.data;
+  return <>
+    <PageHeader eyebrow="Detalji termina" title={booking.serviceName} description={`${dateTime.format(new Date(booking.startAtUtc))} · ${booking.durationMinutes} min`} actions={<Link className={buttonStyles({ variant: 'secondary' })} to={`/app/${ctx.studio.slug}/termini`}>Natrag</Link>} />
+    {result.status === 'loading' ? <Alert className="mb-4">Osvježavanje povijesti…</Alert> : null}
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="space-y-6">
+        <Card>
+          <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="eyebrow">Artist</p><h2 className="mt-1 text-xl">{booking.artistName}</h2><p className="mt-1 text-sm text-ink-subtle">{booking.artistEmail}</p></div><Badge tone={booking.status === 'confirmed' ? 'success' : 'neutral'}>{statusLabel[booking.status]}</Badge></div>
+          <dl className="mt-6 grid gap-4 border-t border-line pt-5 sm:grid-cols-3"><Detail label="Početak" value={dateTime.format(new Date(booking.startAtUtc))} /><Detail label="Završetak" value={dateTime.format(new Date(booking.endAtUtc))} /><Detail label="Cijena" value={money.format(booking.priceMinor / 100)} /></dl>
+          {booking.promoCode ? <p className="mt-4 text-sm text-ink-subtle">Promo kod: <span className="font-medium text-ink">{booking.promoCode}</span> · popust {money.format(booking.discountMinor / 100)}</p> : null}
+        </Card>
+        <Card>
+          <h2 className="text-xl">Interna bilješka</h2><p className="mt-1 text-sm text-ink-subtle">Vidljiva je samo owneru i managerima studija.</p>
+          <form className="mt-5" onSubmit={(event) => void submitNote(event)}><Field label="Nova bilješka" required><Textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={1000} rows={4} /></Field><div className="mt-3 flex justify-end"><Button type="submit" loading={saving} disabled={!note.trim()}>Spremi bilješku</Button></div></form>
+        </Card>
+      </div>
+      <Card><p className="eyebrow">Povijest</p><h2 className="mt-1 text-xl">Aktivnosti termina</h2><Timeline entries={timeline} format={dateTime} /></Card>
+    </div>
+  </>;
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return <div><dt className="text-xs uppercase tracking-wide text-ink-subtle">{label}</dt><dd className="mt-1 text-sm font-medium">{value}</dd></div>;
+}
+
+function Timeline({ entries, format }: { entries: BookingTimelineEntry[]; format: Intl.DateTimeFormat }) {
+  if (!entries.length) return <p className="mt-5 text-sm text-ink-subtle">Nema zabilježenih aktivnosti.</p>;
+  return <ol className="mt-5 space-y-5 border-l border-line pl-5">{[...entries].reverse().map((entry) => <li key={entry.id} className="relative before:absolute before:-left-[1.43rem] before:top-1.5 before:size-2 before:rounded-full before:bg-accent">
+    <p className="text-sm font-medium">{entry.kind === 'event' ? eventLabel[entry.eventType] : 'Interna bilješka'}</p>
+    {entry.kind === 'note' ? <p className="mt-2 whitespace-pre-wrap text-sm text-ink-muted">{entry.body}</p> : null}
+    <p className="mt-1 text-xs text-ink-subtle">{entry.actorName ?? 'Sustav'} · {format.format(new Date(entry.createdAt))}</p>
+  </li>)}</ol>;
+}

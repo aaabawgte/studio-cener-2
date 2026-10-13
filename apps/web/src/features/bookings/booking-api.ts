@@ -1,4 +1,4 @@
-import type { BlockedSlot, BlockedSlotCreate, Booking, BookingAvailability, BookingCreate, ManagedBookingCreate, PromoQuote, PromoQuoteRequest, ValueArtist } from '@studio/contracts';
+import type { BlockedSlot, BlockedSlotCreate, Booking, BookingAvailability, BookingCreate, BookingDetail, BookingTimelineEntry, ManagedBookingCreate, PromoQuote, PromoQuoteRequest, ValueArtist } from '@studio/contracts';
 import { apiFetch } from '../../lib/api/client';
 import { USE_MOCKS } from '../../lib/env';
 
@@ -33,6 +33,17 @@ export async function validateBookingPromo(slug: string, input: PromoQuoteReques
 export async function fetchBookings(slug: string, signal?: AbortSignal) {
   if (USE_MOCKS) return (await import('../../mocks/bookings')).mockBookings(signal);
   return apiFetch<{ bookings: Booking[] }>(`/api/studios/${encodeURIComponent(slug)}/bookings`, { signal });
+}
+
+export async function fetchBookingDetail(slug: string, bookingId: string, signal?: AbortSignal) {
+  return apiFetch<BookingDetail>(`/api/studios/${encodeURIComponent(slug)}/bookings/${encodeURIComponent(bookingId)}`, { signal });
+}
+
+export async function createBookingNote(slug: string, bookingId: string, body: string) {
+  return apiFetch<BookingTimelineEntry>(`/api/studios/${encodeURIComponent(slug)}/bookings/${encodeURIComponent(bookingId)}/notes`, {
+    method: 'POST',
+    body: { body },
+  });
 }
 
 export async function cancelBooking(slug: string, bookingId: string) {

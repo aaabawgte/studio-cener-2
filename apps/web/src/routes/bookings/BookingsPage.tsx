@@ -72,10 +72,11 @@ export function BookingsPage() {
               <p className="mt-1 text-sm text-ink-subtle">{new Intl.NumberFormat('hr-HR', { style: 'currency', currency: booking.currency }).format(booking.priceMinor / 100)}</p>
               {ctx.membership.role !== 'artist' && booking.artistName ? <p className="mt-1 text-xs text-ink-subtle">{booking.artistName} · {booking.artistEmail}</p> : null}
             </div>
-            {booking.status === 'confirmed' ? <div className="flex flex-wrap gap-2">
+            {canManage || booking.status === 'confirmed' ? <div className="flex flex-wrap gap-2">
+              {canManage ? <Link className={buttonStyles({ variant: 'secondary' })} to={`/app/${ctx.studio.slug}/termini/${booking.id}`}>Detalji</Link> : null}
               {canManage && hasEnded ? <Button onClick={() => setStatusChange({ booking, status: 'completed' })}>Završen</Button> : null}
               {canManage && hasStarted ? <Button variant="secondary" onClick={() => setStatusChange({ booking, status: 'no_show' })}>Nije došao</Button> : null}
-              <Button variant="secondary" loading={cancelling === booking.id} onClick={() => void cancel(booking)}>Otkaži termin</Button>
+              {booking.status === 'confirmed' ? <Button variant="secondary" loading={cancelling === booking.id} onClick={() => void cancel(booking)}>Otkaži termin</Button> : null}
             </div> : null}
           </Card>
           );

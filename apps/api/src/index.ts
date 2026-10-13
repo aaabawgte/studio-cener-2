@@ -5,12 +5,14 @@ import { secureHeaders } from 'hono/secure-headers';
 import { createAuth, type AuthBindings } from './auth';
 import {
   cancelBooking,
+  createBookingNote,
   createArtistMembership,
   createBlockedSlot,
   createBooking,
   createManagedBooking,
   deleteBlockedSlot,
   getBookingAvailability,
+  getBookingDetail,
   listBlockedSlots,
   listBookings,
   listBookingArtists,
@@ -134,6 +136,8 @@ app.post('/api/studios/:slug/bookings', createBooking);
 app.post('/api/studios/:slug/bookings/managed', createManagedBooking);
 app.get('/api/studios/:slug/bookings', listBookings);
 app.get('/api/studios/:slug/booking-artists', listBookingArtists);
+app.get('/api/studios/:slug/bookings/:bookingId', getBookingDetail);
+app.post('/api/studios/:slug/bookings/:bookingId/notes', createBookingNote);
 app.post('/api/studios/:slug/bookings/:bookingId/cancel', cancelBooking);
 app.post('/api/studios/:slug/bookings/:bookingId/status', updateBookingStatus);
 app.get('/api/studios/:slug/blocked-slots', listBlockedSlots);
