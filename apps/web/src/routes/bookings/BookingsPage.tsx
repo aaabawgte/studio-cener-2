@@ -1,7 +1,7 @@
 import type { Booking } from '@studio/contracts';
-import { Alert, Badge, Button, Card, EmptyState, LoadingState, PageHeader, useToast } from '@studio/ui';
+import { Alert, Badge, Button, Card, EmptyState, LoadingState, PageHeader, buttonStyles, useToast } from '@studio/ui';
 import { useMemo, useState } from 'react';
-import { useOutletContext } from 'react-router';
+import { Link, useOutletContext } from 'react-router';
 import { cancelBooking, fetchBookings } from '../../features/bookings/booking-api';
 import type { StudioViewerContext } from '../../features/studio/types';
 import { useAsync } from '../../lib/useAsync';
@@ -36,7 +36,7 @@ export function BookingsPage() {
 
   return (
     <>
-      <PageHeader title={ctx.membership.role === 'artist' ? 'Moji termini' : 'Rezervacije'} description="Potvrđeni, završeni i otkazani termini studija." />
+      <PageHeader title={ctx.membership.role === 'artist' ? 'Moji termini' : 'Rezervacije'} description="Potvrđeni, završeni i otkazani termini studija." actions={ctx.membership.role !== 'artist' ? <Link className={buttonStyles()} to={`/app/${ctx.studio.slug}/termini/nova`}>Nova rezervacija</Link> : undefined} />
       {result.status === 'loading' ? <LoadingState variant="rows" rows={4} /> : null}
       {result.status === 'error' ? <Alert tone="danger">Rezervacije trenutno nije moguće učitati.</Alert> : null}
       {result.data?.bookings.length === 0 ? <Card padded={false}><EmptyState size="compact" icon="bookings" title="Još nema rezervacija" /></Card> : null}
@@ -47,6 +47,7 @@ export function BookingsPage() {
               <div className="flex flex-wrap items-center gap-2"><h2 className="text-lg">{booking.serviceName}</h2><Badge tone={booking.status === 'confirmed' ? 'success' : 'neutral'}>{statusLabel[booking.status]}</Badge></div>
               <p className="mt-2 text-sm text-ink-muted">{formatter.format(new Date(booking.startAtUtc))} · {booking.durationMinutes} min</p>
               <p className="mt-1 text-sm text-ink-subtle">{new Intl.NumberFormat('hr-HR', { style: 'currency', currency: booking.currency }).format(booking.priceMinor / 100)}</p>
+              {ctx.membership.role !== 'artist' && booking.artistName ? <p className="mt-1 text-xs text-ink-subtle">{booking.artistName} · {booking.artistEmail}</p> : null}
             </div>
             {booking.status === 'confirmed' ? <Button variant="secondary" loading={cancelling === booking.id} onClick={() => void cancel(booking)}>Otkaži termin</Button> : null}
           </Card>

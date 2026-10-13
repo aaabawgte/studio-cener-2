@@ -547,10 +547,22 @@ describe('Studio Cener API foundation', () => {
     ));
     expect(deleteBlockResponse.status).toBe(204);
 
+    const artistUser = await env.DB.prepare('SELECT id FROM user WHERE email=?1').bind('artist@example.test').first<{ id: string }>();
+    const managedBookingResponse = await exports.default.fetch(new Request('https://api.example.test/api/studios/studio-a/bookings/managed', {
+      method: 'POST', headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json', 'Idempotency-Key': 'managed-booking-key-0001' },
+      body: JSON.stringify({ artistUserId: artistUser!.id, serviceId: createdService.id, startAtUtc: availableSlot }),
+    }));
+    expect(managedBookingResponse.status).toBe(201);
+    const managedBooking = bookingSchema.parse(await managedBookingResponse.json());
+    expect(managedBooking.artistUserId).toBe(artistUser!.id);
+    const managedEvent = await env.DB.prepare('SELECT actor_user_id FROM booking_events WHERE booking_id=?1 AND event_type=\'created\'')
+      .bind(managedBooking.id).first<{ actor_user_id: string }>();
+    expect(managedEvent?.actor_user_id).toBe(user.id);
+
     const auditCount = await env.DB.prepare(
       'SELECT COUNT(*) AS count FROM audit_logs WHERE studio_id = ?1',
     ).bind('studio_a').first<{ count: number }>();
-    expect(auditCount?.count).toBe(24);
+    expect(auditCount?.count).toBe(25);
 
     const createManagedStudioResponse = await exports.default.fetch(new Request(
       'https://api.example.test/api/platform/studios',

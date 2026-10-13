@@ -189,6 +189,8 @@ export const bookingSchema = z.object({
   subtotalPriceMinor: z.number().int().min(0),
   discountMinor: z.number().int().min(0),
   promoCode: z.string().nullable(),
+  artistName: z.string().nullable(),
+  artistEmail: z.email().nullable(),
   currency: z.string().regex(/^[A-Z]{3}$/),
   createdAt: z.iso.datetime({ offset: true }),
 });
@@ -200,6 +202,8 @@ export const bookingCreateSchema = z.object({
   promoCode: z.string().trim().toUpperCase().min(2).max(40).optional(),
 });
 export type BookingCreate = z.infer<typeof bookingCreateSchema>;
+export const managedBookingCreateSchema = bookingCreateSchema.extend({ artistUserId: z.string().min(1) });
+export type ManagedBookingCreate = z.infer<typeof managedBookingCreateSchema>;
 
 export const bookingSlotSchema = z.object({
   startAtUtc: z.iso.datetime({ offset: true }),

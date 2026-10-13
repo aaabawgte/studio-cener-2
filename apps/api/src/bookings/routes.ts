@@ -3,15 +3,18 @@ import {
   blockedSlotSchema,
   bookingAvailabilitySchema,
   bookingCreateSchema,
+  managedBookingCreateSchema,
   bookingSchema,
+  valueArtistSchema,
   type ApiErrorBody,
   type Booking,
+  type BookingCreate,
 } from '@studio/contracts';
 import { Temporal } from '@js-temporal/polyfill';
 import type { Context } from 'hono';
 import type { AuthBindings } from '../auth';
 import { createAuth } from '../auth';
-import { resolveStudioAccess } from '../authorization/studio-access';
+import { resolveStudioAccess, type StudioAccess } from '../authorization/studio-access';
 import { permissionsForRole } from '../authorization/permissions';
 import type { BookingCommand, StoredBlockedSlot, StoredBooking } from '../durable-objects/booking-coordinator';
 import { resolvePromo } from '../promos/routes';
@@ -38,7 +41,7 @@ function param(context: ApiContext, name: string) {
   return context.req.param(name) ?? '';
 }
 
-function toBooking(row: StoredBooking): Booking {
+function toBooking(row: StoredBooking & { artist_name?: string; artist_email?: string }): Booking {
   return bookingSchema.parse({
     id: row.id,
     studioId: row.studio_id,
@@ -54,6 +57,8 @@ function toBooking(row: StoredBooking): Booking {
     subtotalPriceMinor: row.subtotal_price_minor_snapshot,
     discountMinor: row.discount_minor_snapshot,
     promoCode: row.promo_code_snapshot,
+    artistName: row.artist_name ?? null,
+    artistEmail: row.artist_email ?? null,
     currency: row.currency_snapshot,
     createdAt: new Date(row.created_at).toISOString(),
   });
@@ -180,33 +185,50 @@ export async function createArtistMembership(context: ApiContext) {
 export async function createBooking(context: ApiContext) {
   const access = await resolveStudioAccess(context.env, context.req.raw, param(context, 'slug'));
   if (!access.ok) return context.json(access.error.body, access.error.status);
+  let body: unknown;
+  try { body = await context.req.json(); } catch { body = undefined; }
+  const parsed = bookingCreateSchema.safeParse(body);
+  if (!parsed.success) return context.json<ApiErrorBody>({ code: 'VALIDATION_ERROR', message: 'Provjerite termin i uslugu.' }, 422);
+  return createBookingFor(context, access.value, access.value.actor.userId, access.value.actor.userId, parsed.data);
+}
+
+export async function createManagedBooking(context: ApiContext) {
+  const access = await resolveStudioAccess(context.env, context.req.raw, param(context, 'slug'), 'bookings.manage');
+  if (!access.ok) return context.json(access.error.body, access.error.status);
+  let body: unknown;
+  try { body = await context.req.json(); } catch { body = undefined; }
+  const parsed = managedBookingCreateSchema.safeParse(body);
+  if (!parsed.success) return context.json<ApiErrorBody>({ code: 'VALIDATION_ERROR', message: 'Provjerite artista, termin i uslugu.' }, 422);
+  const artist = await context.env.DB.prepare(
+    `SELECT user_id FROM memberships WHERE studio_id=?1 AND user_id=?2 AND role='artist' AND status='active' LIMIT 1`,
+  ).bind(access.value.studio.id, parsed.data.artistUserId).first();
+  if (!artist) return context.json<ApiErrorBody>({ code: 'ARTIST_NOT_FOUND', message: 'Aktivni artist nije pronađen.' }, 404);
+  return createBookingFor(context, access.value, parsed.data.artistUserId, access.value.actor.userId, parsed.data);
+}
+
+async function createBookingFor(context: ApiContext, access: StudioAccess, artistUserId: string, actorUserId: string, input: BookingCreate) {
   const idempotencyKey = context.req.header('Idempotency-Key')?.trim();
   if (!idempotencyKey || idempotencyKey.length < 16 || idempotencyKey.length > 128) {
     return context.json<ApiErrorBody>({ code: 'IDEMPOTENCY_KEY_REQUIRED', message: 'A valid Idempotency-Key header is required.' }, 400);
   }
 
-  let body: unknown;
-  try { body = await context.req.json(); } catch { body = undefined; }
-  const parsed = bookingCreateSchema.safeParse(body);
-  if (!parsed.success) return context.json<ApiErrorBody>({ code: 'VALIDATION_ERROR', message: 'Provjerite termin i uslugu.' }, 422);
-
   let start: number;
-  try { start = Temporal.Instant.from(parsed.data.startAtUtc).epochMilliseconds; } catch {
+  try { start = Temporal.Instant.from(input.startAtUtc).epochMilliseconds; } catch {
     return context.json<ApiErrorBody>({ code: 'INVALID_START_TIME', message: 'Invalid start time.' }, 422);
   }
-  const requestFingerprint = `${access.value.actor.userId}:${parsed.data.serviceId}:${start}:${parsed.data.promoCode ?? ''}`;
+  const requestFingerprint = `${artistUserId}:${input.serviceId}:${start}:${input.promoCode ?? ''}`;
   const existing = await context.env.DB.prepare(
     `SELECT id, studio_id, resource_id, artist_user_id, service_id, start_at_utc, end_at_utc, status,
       service_name_snapshot, duration_minutes_snapshot, price_minor_snapshot, subtotal_price_minor_snapshot,
       discount_minor_snapshot, promo_code_id, promo_code_snapshot, currency_snapshot, request_fingerprint, created_at
      FROM bookings WHERE studio_id=?1 AND idempotency_key=?2 LIMIT 1`,
-  ).bind(access.value.studio.id, idempotencyKey).first<StoredBooking>();
+  ).bind(access.studio.id, idempotencyKey).first<StoredBooking>();
   if (existing) return existing.request_fingerprint === requestFingerprint
     ? context.json(toBooking(existing), 200)
     : context.json<ApiErrorBody>({ code: 'IDEMPOTENCY_CONFLICT', message: 'Idempotency key was already used for another request.' }, 409);
 
-  const setup = await getSetup(context, access.value.studio.slug, parsed.data.serviceId);
-  if (!setup || setup.studio_id !== access.value.studio.id) {
+  const setup = await getSetup(context, access.studio.slug, input.serviceId);
+  if (!setup || setup.studio_id !== access.studio.id) {
     return context.json<ApiErrorBody>({ code: 'SERVICE_NOT_FOUND', message: 'Service not found.' }, 404);
   }
   const local = instantInTimezone(start, setup.timezone);
@@ -229,9 +251,9 @@ export async function createBooking(context: ApiContext) {
   if (!rule) return context.json<ApiErrorBody>({ code: 'OUTSIDE_WORKING_HOURS', message: 'Selected time is outside working hours.' }, 422);
 
   const end = start + setup.duration_minutes * 60_000;
-  const promo = parsed.data.promoCode
-    ? await resolvePromo(context.env, { studioId: setup.studio_id, userId: access.value.actor.userId,
-      code: parsed.data.promoCode, subtotalMinor: setup.price_minor, now: Date.now() })
+  const promo = input.promoCode
+    ? await resolvePromo(context.env, { studioId: setup.studio_id, userId: artistUserId,
+      code: input.promoCode, subtotalMinor: setup.price_minor, now: Date.now() })
     : null;
   if (promo && !promo.ok) return context.json<ApiErrorBody>({ code: promo.code, message: promo.message }, 422);
   const discountMinor = promo?.ok ? promo.promo.discountMinor : 0;
@@ -239,7 +261,8 @@ export async function createBooking(context: ApiContext) {
     bookingId: crypto.randomUUID(),
     studioId: setup.studio_id,
     resourceId: setup.resource_id,
-    artistUserId: access.value.actor.userId,
+    artistUserId,
+    actorUserId,
     serviceId: setup.service_id,
     startAtUtc: start,
     endAtUtc: end,
@@ -268,17 +291,28 @@ export async function listBookings(context: ApiContext) {
   const access = await resolveStudioAccess(context.env, context.req.raw, param(context, 'slug'));
   if (!access.ok) return context.json(access.error.body, access.error.status);
   const canViewAll = permissionsForRole(access.value.actor.role).includes('bookings.view');
-  const sql = `SELECT id, studio_id, resource_id, artist_user_id, service_id, start_at_utc, end_at_utc, status,
-    service_name_snapshot, duration_minutes_snapshot, price_minor_snapshot, subtotal_price_minor_snapshot,
-    discount_minor_snapshot, promo_code_id, promo_code_snapshot, currency_snapshot,
-    request_fingerprint, created_at
-    FROM bookings WHERE studio_id = ?1 ${canViewAll ? '' : 'AND artist_user_id = ?2'}
-    ORDER BY start_at_utc DESC LIMIT 200`;
+  const sql = `SELECT b.id,b.studio_id,b.resource_id,b.artist_user_id,b.service_id,b.start_at_utc,b.end_at_utc,b.status,
+    b.service_name_snapshot,b.duration_minutes_snapshot,b.price_minor_snapshot,b.subtotal_price_minor_snapshot,
+    b.discount_minor_snapshot,b.promo_code_id,b.promo_code_snapshot,b.currency_snapshot,b.request_fingerprint,b.created_at,
+    u.name AS artist_name,u.email AS artist_email
+    FROM bookings b JOIN user u ON u.id=b.artist_user_id
+    WHERE b.studio_id = ?1 ${canViewAll ? '' : 'AND b.artist_user_id = ?2'}
+    ORDER BY b.start_at_utc DESC LIMIT 200`;
   const statement = context.env.DB.prepare(sql);
   const result = canViewAll
     ? await statement.bind(access.value.studio.id).all<StoredBooking>()
     : await statement.bind(access.value.studio.id, access.value.actor.userId).all<StoredBooking>();
   return context.json({ bookings: result.results.map(toBooking) });
+}
+
+export async function listBookingArtists(context: ApiContext) {
+  const access = await resolveStudioAccess(context.env, context.req.raw, param(context, 'slug'), 'bookings.manage');
+  if (!access.ok) return context.json(access.error.body, access.error.status);
+  const result = await context.env.DB.prepare(
+    `SELECT u.id AS userId,u.name,u.email FROM memberships m JOIN user u ON u.id=m.user_id
+     WHERE m.studio_id=?1 AND m.role='artist' AND m.status='active' ORDER BY u.name COLLATE NOCASE`,
+  ).bind(access.value.studio.id).all();
+  return context.json({ artists: result.results.map((row) => valueArtistSchema.parse(row)) });
 }
 
 export async function cancelBooking(context: ApiContext) {

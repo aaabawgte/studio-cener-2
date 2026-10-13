@@ -45,6 +45,8 @@ export async function mockCreateBooking(input: BookingCreate): Promise<Booking> 
     subtotalPriceMinor: input.serviceId === 'demo-mix' ? 15000 : 9000,
     discountMinor: 0,
     promoCode: null,
+    artistName: null,
+    artistEmail: null,
     currency: 'EUR',
     createdAt: new Date().toISOString(),
   };

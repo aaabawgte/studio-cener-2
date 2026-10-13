@@ -28,6 +28,7 @@ import { NotificationsPage } from './routes/artist/NotificationsPage';
 import { OwnerWaitlistPage } from './routes/owner/WaitlistPage';
 import { AnalyticsPage } from './routes/owner/AnalyticsPage';
 import { OverviewPage } from './routes/owner/OverviewPage';
+import { CreateBookingPage } from './routes/owner/CreateBookingPage';
 
 // Dev-only katalog komponenti; ne ulazi u produkcijski bundle.
 const UiKit = import.meta.env.DEV ? lazy(() => import('./routes/dev/UiKit')) : null;
@@ -58,6 +59,7 @@ export function App() {
             <Route path="usluge" element={<ServicesPage />} />
             <Route path="radno-vrijeme" element={<AvailabilityPage />} />
             <Route path="termini" element={<BookingsPage />} />
+            <Route path="termini/nova" element={<CreateBookingPage />} />
             <Route path="kalendar" element={<CalendarPage />} />
             <Route path="tim" element={<TeamPage />} />
             <Route path="portfolio" element={<PortfolioPage />} />

@@ -8,10 +8,12 @@ import {
   createArtistMembership,
   createBlockedSlot,
   createBooking,
+  createManagedBooking,
   deleteBlockedSlot,
   getBookingAvailability,
   listBlockedSlots,
   listBookings,
+  listBookingArtists,
 } from './bookings/routes';
 import { BookingCoordinator } from './durable-objects/booking-coordinator';
 import { ValueCoordinator } from './durable-objects/value-coordinator';
@@ -128,7 +130,9 @@ app.put('/api/studios/:slug/availability-rules', replaceAvailabilityRules);
 app.get('/api/public/studios/:slug/booking-availability', getBookingAvailability);
 app.post('/api/studios/:slug/artist-membership', createArtistMembership);
 app.post('/api/studios/:slug/bookings', createBooking);
+app.post('/api/studios/:slug/bookings/managed', createManagedBooking);
 app.get('/api/studios/:slug/bookings', listBookings);
+app.get('/api/studios/:slug/booking-artists', listBookingArtists);
 app.post('/api/studios/:slug/bookings/:bookingId/cancel', cancelBooking);
 app.get('/api/studios/:slug/blocked-slots', listBlockedSlots);
 app.post('/api/studios/:slug/blocked-slots', createBlockedSlot);

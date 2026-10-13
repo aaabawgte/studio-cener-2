@@ -17,7 +17,7 @@ function Overview({ data, ctx }: { data: StudioOverview; ctx: StudioViewerContex
   const money = new Intl.NumberFormat('hr-HR', { style: 'currency', currency: data.currency, maximumFractionDigits: 0 });
   const date = new Intl.DateTimeFormat('hr-HR', { timeZone: data.timezone, weekday: 'long', day: 'numeric', month: 'long' }).format(new Date(`${data.date}T12:00:00`));
   const needsAttention = !data.attention.hasActiveServices || !data.attention.hasAvailabilityRules || data.attention.activeWaitlistEntries > 0;
-  return <><PageHeader eyebrow={date} title={`Dobro došli, ${ctx.viewer.name.split(' ')[0]}`} description="Današnji raspored i stvari koje traže pažnju." actions={<Link className={buttonStyles()} to={`${base}/kalendar`}>Otvori kalendar</Link>} />
+  return <><PageHeader eyebrow={date} title={`Dobro došli, ${ctx.viewer.name.split(' ')[0]}`} description="Današnji raspored i stvari koje traže pažnju." actions={<Link className={buttonStyles()} to={`${base}/termini/nova`}>Nova rezervacija</Link>} />
     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"><Card><Stat label="Danas" value={data.summary.todayBookings} hint="aktivnih termina" /></Card><Card><Stat label="Vrijednost danas" value={money.format(data.summary.todayBookingValueMinor / 100)} hint="vrijednost rezervacija" /></Card><Card><Stat label="Idućih 7 dana" value={data.summary.nextSevenDaysBookings} hint="potvrđenih termina" /></Card><Card><Stat label="Lista čekanja" value={data.summary.activeWaitlistEntries} hint="aktivnih prijava" /></Card></div>
     {needsAttention ? <section className="mt-8"><h2 className="mb-4 text-xl">Traži pažnju</h2><div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">{!data.attention.hasActiveServices ? <Attention title="Nema aktivnih usluga" body="Dodajte barem jednu uslugu prije primanja rezervacija." href={`${base}/usluge`} label="Uredi usluge" /> : null}{!data.attention.hasAvailabilityRules ? <Attention title="Radno vrijeme nije postavljeno" body="Bez radnog vremena artisti ne mogu pronaći slobodan termin." href={`${base}/radno-vrijeme`} label="Postavi radno vrijeme" /> : null}{data.attention.activeWaitlistEntries ? <Attention title={`${data.attention.activeWaitlistEntries} na listi čekanja`} body="Provjerite tražene datume i moguće slobodne termine." href={`${base}/lista-cekanja`} label="Otvori listu" /> : null}</div></section> : null}
     <div className="mt-8 grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(18rem,.6fr)]"><TodaySchedule data={data} /><QuickActions base={base} permissions={ctx.membership.permissions} /></div>
@@ -31,6 +31,7 @@ function TodaySchedule({ data }: { data: StudioOverview }) {
 
 function QuickActions({ base, permissions }: { base: string; permissions: StudioViewerContext['membership']['permissions'] }) {
   const allLinks = [
+    { label: 'Nova rezervacija', href: `${base}/termini/nova`, permission: 'bookings.manage' },
     { label: 'Otvori kalendar', href: `${base}/kalendar`, permission: 'bookings.view' },
     { label: 'Uredi usluge', href: `${base}/usluge`, permission: 'services.manage' },
     { label: 'Blokiraj termin', href: `${base}/kalendar`, permission: 'calendar.manage' },

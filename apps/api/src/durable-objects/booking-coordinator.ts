@@ -5,6 +5,7 @@ export type BookingCommand = {
   studioId: string;
   resourceId: string;
   artistUserId: string;
+  actorUserId: string;
   serviceId: string;
   startAtUtc: number;
   endAtUtc: number;
@@ -175,7 +176,7 @@ export class BookingCoordinator extends DurableObject<Env> {
         this.env.DB.prepare(
           `INSERT INTO booking_events (id, studio_id, booking_id, actor_user_id, event_type, payload_json, created_at)
            VALUES (?1, ?2, ?3, ?4, 'created', ?5, ?6)`,
-        ).bind(crypto.randomUUID(), command.studioId, command.bookingId, command.artistUserId, JSON.stringify({
+        ).bind(crypto.randomUUID(), command.studioId, command.bookingId, command.actorUserId, JSON.stringify({
           startAtUtc: command.startAtUtc,
           endAtUtc: command.endAtUtc,
           serviceId: command.serviceId,
@@ -190,8 +191,8 @@ export class BookingCoordinator extends DurableObject<Env> {
         this.env.DB.prepare(
           `INSERT INTO audit_logs (id, studio_id, actor_user_id, action, entity_type, entity_id, diff_json, request_id, created_at)
            VALUES (?1, ?2, ?3, 'booking.created', 'booking', ?4, ?5, ?6, ?7)`,
-        ).bind(crypto.randomUUID(), command.studioId, command.artistUserId, command.bookingId,
-          JSON.stringify({ startAtUtc: command.startAtUtc, endAtUtc: command.endAtUtc, status: 'confirmed' }),
+        ).bind(crypto.randomUUID(), command.studioId, command.actorUserId, command.bookingId,
+          JSON.stringify({ startAtUtc: command.startAtUtc, endAtUtc: command.endAtUtc, status: 'confirmed', artistUserId: command.artistUserId }),
           command.requestId, command.now),
       ]);
     } catch (error: unknown) {
