@@ -27,6 +27,7 @@ import { WaitlistPage } from './routes/artist/WaitlistPage';
 import { NotificationsPage } from './routes/artist/NotificationsPage';
 import { OwnerWaitlistPage } from './routes/owner/WaitlistPage';
 import { AnalyticsPage } from './routes/owner/AnalyticsPage';
+import { OverviewPage } from './routes/owner/OverviewPage';
 
 // Dev-only katalog komponenti; ne ulazi u produkcijski bundle.
 const UiKit = import.meta.env.DEV ? lazy(() => import('./routes/dev/UiKit')) : null;
@@ -50,7 +51,7 @@ export function App() {
           <Route path="/s/:slug" element={<PublicStudioPage />} />
 
           <Route path="/app/:slug" element={<OwnerLayout />}>
-            <Route index element={<ModulePlaceholder sections={ownerNav} id="overview" description="Današnji termini, popunjenost tjedna i stvari koje traže pažnju." />} />
+            <Route index element={<OverviewPage />} />
             {ownerRoutes.map((r) => (
               <Route key={r.id} path={r.path} element={<ModulePlaceholder sections={ownerNav} id={r.id} description={r.description} />} />
             ))}

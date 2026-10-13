@@ -1,4 +1,4 @@
-import { artistValueAccountSchema, blockedSlotSchema, bookingAvailabilitySchema, bookingSchema, healthResponseSchema, hourPackageSchema, managerInvitationCreatedSchema, notificationSchema, platformStudioCreatedSchema, portfolioProjectSchema, promoCodeSchema, promoQuoteSchema, serviceSchema, studioAccessSchema, studioAnalyticsSchema, teamMemberSchema, waitlistEntrySchema } from '@studio/contracts';
+import { artistValueAccountSchema, blockedSlotSchema, bookingAvailabilitySchema, bookingSchema, healthResponseSchema, hourPackageSchema, managerInvitationCreatedSchema, notificationSchema, platformStudioCreatedSchema, portfolioProjectSchema, promoCodeSchema, promoQuoteSchema, serviceSchema, studioAccessSchema, studioAnalyticsSchema, studioOverviewSchema, teamMemberSchema, waitlistEntrySchema } from '@studio/contracts';
 import { env, exports } from 'cloudflare:workers';
 import { beforeAll, describe, expect, it } from 'vitest';
 import identityMigration from '../../../db/migrations/0001_identity_and_tenancy.sql?raw';
@@ -517,6 +517,9 @@ describe('Studio Cener API foundation', () => {
     const analyticsResponse = await exports.default.fetch(new Request('https://api.example.test/api/studios/studio-a/analytics?range=30d', { headers: { Cookie: cookie ?? '' } }));
     expect(analyticsResponse.status).toBe(200);
     expect(studioAnalyticsSchema.parse(await analyticsResponse.json())).toMatchObject({ range: '30d', currency: 'EUR', timezone: 'Europe/Zagreb' });
+    const overviewResponse = await exports.default.fetch(new Request('https://api.example.test/api/studios/studio-a/overview', { headers: { Cookie: cookie ?? '' } }));
+    expect(overviewResponse.status).toBe(200);
+    expect(studioOverviewSchema.parse(await overviewResponse.json())).toMatchObject({ currency: 'EUR', timezone: 'Europe/Zagreb', attention: { hasActiveServices: true, hasAvailabilityRules: true } });
 
     const createBlockResponse = await exports.default.fetch(new Request(
       'https://api.example.test/api/studios/studio-a/blocked-slots',

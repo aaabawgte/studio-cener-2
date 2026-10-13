@@ -544,3 +544,31 @@ export const studioAnalyticsSchema = z.object({
   })),
 });
 export type StudioAnalytics = z.infer<typeof studioAnalyticsSchema>;
+
+export const studioOverviewSchema = z.object({
+  date: z.iso.date(),
+  timezone: z.string().min(1),
+  currency: z.string().regex(/^[A-Z]{3}$/),
+  summary: z.object({
+    todayBookings: z.number().int().min(0),
+    todayBookingValueMinor: z.number().int().min(0),
+    nextSevenDaysBookings: z.number().int().min(0),
+    activeWaitlistEntries: z.number().int().min(0),
+  }),
+  attention: z.object({
+    hasActiveServices: z.boolean(),
+    hasAvailabilityRules: z.boolean(),
+    activeWaitlistEntries: z.number().int().min(0),
+  }),
+  today: z.array(z.object({
+    id: z.string().min(1),
+    artistName: z.string().min(1),
+    artistEmail: z.email(),
+    serviceName: z.string().min(1),
+    startAtUtc: z.iso.datetime({ offset: true }),
+    endAtUtc: z.iso.datetime({ offset: true }),
+    status: bookingStatusSchema,
+    priceMinor: z.number().int().min(0),
+  })),
+});
+export type StudioOverview = z.infer<typeof studioOverviewSchema>;

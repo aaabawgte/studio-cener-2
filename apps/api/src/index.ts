@@ -55,6 +55,7 @@ import { createPromoCode, listPromoCodes, updatePromoCode, validatePromoCode } f
 import { cancelWaitlistEntry, createWaitlistEntry, listOwnWaitlist, listStudioWaitlist } from './waitlist/routes';
 import { listNotifications, markNotificationRead } from './notifications/routes';
 import { getStudioAnalytics } from './analytics/routes';
+import { getStudioOverview } from './overview/routes';
 
 type AppEnvironment = {
   Bindings: AuthBindings;
@@ -152,6 +153,7 @@ app.delete('/api/studios/:slug/waitlist/:entryId', cancelWaitlistEntry);
 app.get('/api/studios/:slug/notifications', listNotifications);
 app.patch('/api/studios/:slug/notifications/:notificationId/read', markNotificationRead);
 app.get('/api/studios/:slug/analytics', getStudioAnalytics);
+app.get('/api/studios/:slug/overview', getStudioOverview);
 app.get('/api/platform/studios', listPlatformStudios);
 app.post('/api/platform/studios', createPlatformStudio);
 app.put('/api/platform/studios/:studioId/license', updateStudioLicense);
