@@ -3,6 +3,7 @@ import {
   blockedSlotSchema,
   bookingAvailabilitySchema,
   bookingCreateSchema,
+  bookingStatusUpdateSchema,
   managedBookingCreateSchema,
   bookingSchema,
   valueArtistSchema,
@@ -340,6 +341,40 @@ export async function cancelBooking(context: ApiContext) {
   });
   if (result.kind === 'not_found') return context.json<ApiErrorBody>({ code: 'BOOKING_NOT_FOUND', message: 'Booking not found.' }, 404);
   if (result.kind === 'invalid_status') return context.json<ApiErrorBody>({ code: 'INVALID_BOOKING_STATUS', message: 'Booking cannot be cancelled.' }, 409);
+  return context.json(toBooking(result.booking));
+}
+
+export async function updateBookingStatus(context: ApiContext) {
+  const access = await resolveStudioAccess(context.env, context.req.raw, param(context, 'slug'), 'bookings.manage');
+  if (!access.ok) return context.json(access.error.body, access.error.status);
+  let body: unknown;
+  try { body = await context.req.json(); } catch { body = undefined; }
+  const parsed = bookingStatusUpdateSchema.safeParse(body);
+  if (!parsed.success) {
+    return context.json<ApiErrorBody>({ code: 'VALIDATION_ERROR', message: 'Odaberite valjani status termina.' }, 422);
+  }
+  const booking = await context.env.DB.prepare(
+    'SELECT resource_id FROM bookings WHERE studio_id = ?1 AND id = ?2 LIMIT 1',
+  ).bind(access.value.studio.id, param(context, 'bookingId')).first<{ resource_id: string }>();
+  if (!booking) return context.json<ApiErrorBody>({ code: 'BOOKING_NOT_FOUND', message: 'Booking not found.' }, 404);
+
+  const coordinator = context.env.BOOKING_COORDINATOR.getByName(`${access.value.studio.id}:${booking.resource_id}`);
+  const result = await coordinator.updateBookingStatus({
+    studioId: access.value.studio.id,
+    resourceId: booking.resource_id,
+    bookingId: param(context, 'bookingId'),
+    actorUserId: access.value.actor.userId,
+    status: parsed.data.status,
+    requestId: context.get('requestId'),
+    now: Date.now(),
+  });
+  if (result.kind === 'not_found') return context.json<ApiErrorBody>({ code: 'BOOKING_NOT_FOUND', message: 'Booking not found.' }, 404);
+  if (result.kind === 'invalid_status') {
+    return context.json<ApiErrorBody>({ code: 'INVALID_BOOKING_STATUS', message: 'Status ovog termina više nije moguće promijeniti.' }, 409);
+  }
+  if (result.kind === 'too_early') {
+    return context.json<ApiErrorBody>({ code: 'BOOKING_STATUS_TOO_EARLY', message: 'Termin još nije počeo ili završio.' }, 409);
+  }
   return context.json(toBooking(result.booking));
 }
 

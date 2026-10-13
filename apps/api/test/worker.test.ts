@@ -559,10 +559,37 @@ describe('Studio Cener API foundation', () => {
       .bind(managedBooking.id).first<{ actor_user_id: string }>();
     expect(managedEvent?.actor_user_id).toBe(user.id);
 
+    const earlyCompletionResponse = await exports.default.fetch(new Request(
+      `https://api.example.test/api/studios/studio-a/bookings/${managedBooking.id}/status`,
+      { method: 'POST', headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'completed' }) },
+    ));
+    expect(earlyCompletionResponse.status).toBe(409);
+
+    const artistStatusResponse = await exports.default.fetch(new Request(
+      `https://api.example.test/api/studios/studio-a/bookings/${managedBooking.id}/status`,
+      { method: 'POST', headers: { Cookie: artistCookie ?? '', 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'no_show' }) },
+    ));
+    expect(artistStatusResponse.status).toBe(403);
+
+    const pastStart = Date.now() - 120 * 60_000;
+    const pastEnd = Date.now() - 60 * 60_000;
+    await env.DB.prepare('UPDATE bookings SET start_at_utc=?1,end_at_utc=?2 WHERE id=?3')
+      .bind(pastStart, pastEnd, managedBooking.id).run();
+    const completionResponse = await exports.default.fetch(new Request(
+      `https://api.example.test/api/studios/studio-a/bookings/${managedBooking.id}/status`,
+      { method: 'POST', headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'completed' }) },
+    ));
+    expect(completionResponse.status).toBe(200);
+    expect(bookingSchema.parse(await completionResponse.json()).status).toBe('completed');
+    const completionEvent = await env.DB.prepare(
+      'SELECT actor_user_id FROM booking_events WHERE booking_id=?1 AND event_type=\'completed\'',
+    ).bind(managedBooking.id).first<{ actor_user_id: string }>();
+    expect(completionEvent?.actor_user_id).toBe(user.id);
+
     const auditCount = await env.DB.prepare(
       'SELECT COUNT(*) AS count FROM audit_logs WHERE studio_id = ?1',
     ).bind('studio_a').first<{ count: number }>();
-    expect(auditCount?.count).toBe(25);
+    expect(auditCount?.count).toBe(26);
 
     const createManagedStudioResponse = await exports.default.fetch(new Request(
       'https://api.example.test/api/platform/studios',

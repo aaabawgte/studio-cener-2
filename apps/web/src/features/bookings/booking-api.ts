@@ -40,6 +40,13 @@ export async function cancelBooking(slug: string, bookingId: string) {
   return apiFetch<Booking>(`/api/studios/${encodeURIComponent(slug)}/bookings/${encodeURIComponent(bookingId)}/cancel`, { method: 'POST', body: {} });
 }
 
+export async function updateBookingStatus(slug: string, bookingId: string, status: 'completed' | 'no_show') {
+  return apiFetch<Booking>(`/api/studios/${encodeURIComponent(slug)}/bookings/${encodeURIComponent(bookingId)}/status`, {
+    method: 'POST',
+    body: { status },
+  });
+}
+
 export async function fetchBlockedSlots(slug: string, signal?: AbortSignal) {
   if (USE_MOCKS) return (await import('../../mocks/bookings')).mockBlockedSlots(signal);
   return apiFetch<{ blockedSlots: BlockedSlot[] }>(`/api/studios/${encodeURIComponent(slug)}/blocked-slots`, { signal });

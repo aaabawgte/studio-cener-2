@@ -66,6 +66,22 @@ export type CancelBookingResult =
   | { kind: 'not_found' }
   | { kind: 'invalid_status' };
 
+export type UpdateBookingStatusCommand = {
+  studioId: string;
+  resourceId: string;
+  bookingId: string;
+  actorUserId: string;
+  status: 'completed' | 'no_show';
+  requestId: string;
+  now: number;
+};
+
+export type UpdateBookingStatusResult =
+  | { kind: 'updated' | 'replayed'; booking: StoredBooking }
+  | { kind: 'not_found' }
+  | { kind: 'invalid_status' }
+  | { kind: 'too_early' };
+
 export type StoredBlockedSlot = {
   id: string;
   studio_id: string;
@@ -276,6 +292,39 @@ export class BookingCoordinator extends DurableObject<Env> {
         JSON.stringify({ before: { status: 'confirmed' }, after: { status: 'cancelled' } }), command.requestId, command.now),
     ]);
     return { kind: 'cancelled', booking: { ...booking, status: 'cancelled' } };
+  }
+
+  async updateBookingStatus(command: UpdateBookingStatusCommand): Promise<UpdateBookingStatusResult> {
+    const booking = await this.env.DB.prepare(
+      `SELECT id,studio_id,resource_id,artist_user_id,service_id,start_at_utc,end_at_utc,status,
+       service_name_snapshot,duration_minutes_snapshot,price_minor_snapshot,subtotal_price_minor_snapshot,
+       discount_minor_snapshot,promo_code_id,promo_code_snapshot,currency_snapshot,request_fingerprint,created_at
+       FROM bookings WHERE studio_id=?1 AND resource_id=?2 AND id=?3 LIMIT 1`,
+    ).bind(command.studioId, command.resourceId, command.bookingId).first<StoredBooking>();
+    if (!booking) return { kind: 'not_found' };
+    if (booking.status === command.status) return { kind: 'replayed', booking };
+    if (booking.status !== 'confirmed') return { kind: 'invalid_status' };
+    if ((command.status === 'completed' && booking.end_at_utc > command.now)
+      || (command.status === 'no_show' && booking.start_at_utc > command.now)) return { kind: 'too_early' };
+
+    await this.env.DB.batch([
+      this.env.DB.prepare(
+        `UPDATE bookings SET status=?1,version=version+1,updated_at=?2
+         WHERE studio_id=?3 AND id=?4 AND status='confirmed'`,
+      ).bind(command.status, command.now, command.studioId, command.bookingId),
+      this.env.DB.prepare('DELETE FROM slot_claims WHERE studio_id=?1 AND booking_id=?2').bind(command.studioId, command.bookingId),
+      this.env.DB.prepare(
+        `INSERT INTO booking_events (id,studio_id,booking_id,actor_user_id,event_type,payload_json,created_at)
+         VALUES (?1,?2,?3,?4,?5,?6,?7)`,
+      ).bind(crypto.randomUUID(), command.studioId, command.bookingId, command.actorUserId, command.status,
+        JSON.stringify({ before: { status: 'confirmed' }, after: { status: command.status } }), command.now),
+      this.env.DB.prepare(
+        `INSERT INTO audit_logs (id,studio_id,actor_user_id,action,entity_type,entity_id,diff_json,request_id,created_at)
+         VALUES (?1,?2,?3,?4,'booking',?5,?6,?7,?8)`,
+      ).bind(crypto.randomUUID(), command.studioId, command.actorUserId, `booking.${command.status}`, command.bookingId,
+        JSON.stringify({ before: { status: 'confirmed' }, after: { status: command.status } }), command.requestId, command.now),
+    ]);
+    return { kind: 'updated', booking: { ...booking, status: command.status } };
   }
 
   async createBlock(command: CreateBlockCommand): Promise<CreateBlockResult> {

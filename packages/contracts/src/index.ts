@@ -204,6 +204,8 @@ export const bookingCreateSchema = z.object({
 export type BookingCreate = z.infer<typeof bookingCreateSchema>;
 export const managedBookingCreateSchema = bookingCreateSchema.extend({ artistUserId: z.string().min(1) });
 export type ManagedBookingCreate = z.infer<typeof managedBookingCreateSchema>;
+export const bookingStatusUpdateSchema = z.object({ status: z.enum(['completed', 'no_show']) });
+export type BookingStatusUpdate = z.infer<typeof bookingStatusUpdateSchema>;
 
 export const bookingSlotSchema = z.object({
   startAtUtc: z.iso.datetime({ offset: true }),

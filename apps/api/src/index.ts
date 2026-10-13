@@ -14,6 +14,7 @@ import {
   listBlockedSlots,
   listBookings,
   listBookingArtists,
+  updateBookingStatus,
 } from './bookings/routes';
 import { BookingCoordinator } from './durable-objects/booking-coordinator';
 import { ValueCoordinator } from './durable-objects/value-coordinator';
@@ -134,6 +135,7 @@ app.post('/api/studios/:slug/bookings/managed', createManagedBooking);
 app.get('/api/studios/:slug/bookings', listBookings);
 app.get('/api/studios/:slug/booking-artists', listBookingArtists);
 app.post('/api/studios/:slug/bookings/:bookingId/cancel', cancelBooking);
+app.post('/api/studios/:slug/bookings/:bookingId/status', updateBookingStatus);
 app.get('/api/studios/:slug/blocked-slots', listBlockedSlots);
 app.post('/api/studios/:slug/blocked-slots', createBlockedSlot);
 app.delete('/api/studios/:slug/blocked-slots/:blockId', deleteBlockedSlot);
