@@ -37,6 +37,7 @@ export const ownerNav: NavSection[] = [
       { id: 'team', label: 'Tim', icon: 'team', path: 'tim', requires: 'team.manage' },
       { id: 'portfolio', label: 'Portfolio', icon: 'portfolio', path: 'portfolio', requires: 'portfolio.manage' },
       { id: 'credits', label: 'Paketi i krediti', icon: 'wallet', path: 'paketi-krediti', requires: 'credits.manage' },
+      { id: 'promos', label: 'Promo kodovi', icon: 'services', path: 'promo-kodovi', requires: 'promos.manage' },
     ],
   },
   {

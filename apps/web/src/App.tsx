@@ -22,6 +22,7 @@ import { PortfolioPage } from './routes/owner/PortfolioPage';
 import { AccessPage } from './routes/owner/AccessPage';
 import { ValuePage } from './routes/owner/ValuePage';
 import { CreditsPage } from './routes/artist/CreditsPage';
+import { PromoCodesPage } from './routes/owner/PromoCodesPage';
 
 // Dev-only katalog komponenti; ne ulazi u produkcijski bundle.
 const UiKit = import.meta.env.DEV ? lazy(() => import('./routes/dev/UiKit')) : null;
@@ -62,6 +63,7 @@ export function App() {
             <Route path="postavke" element={<SettingsPage />} />
             <Route path="pristupi" element={<AccessPage />} />
             <Route path="paketi-krediti" element={<ValuePage />} />
+            <Route path="promo-kodovi" element={<PromoCodesPage />} />
             <Route path="*" element={<NotFound inline />} />
           </Route>
 

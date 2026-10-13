@@ -11,6 +11,10 @@ export type BookingCommand = {
   serviceName: string;
   durationMinutes: number;
   priceMinor: number;
+  subtotalPriceMinor: number;
+  discountMinor: number;
+  promoId: string | null;
+  promoCode: string | null;
   currency: string;
   idempotencyKey: string;
   requestFingerprint: string;
@@ -30,6 +34,10 @@ export type StoredBooking = {
   service_name_snapshot: string;
   duration_minutes_snapshot: number;
   price_minor_snapshot: number;
+  subtotal_price_minor_snapshot: number;
+  discount_minor_snapshot: number;
+  promo_code_id: string | null;
+  promo_code_snapshot: string | null;
   currency_snapshot: string;
   request_fingerprint: string;
   created_at: number;
@@ -39,6 +47,7 @@ export type BookingCommandResult =
   | { kind: 'created'; booking: StoredBooking }
   | { kind: 'replayed'; booking: StoredBooking }
   | { kind: 'conflict' }
+  | { kind: 'promo_unavailable' }
   | { kind: 'idempotency_conflict' };
 
 export type CancelBookingCommand = {
@@ -114,7 +123,8 @@ export class BookingCoordinator extends DurableObject<Env> {
   async createBooking(command: BookingCommand): Promise<BookingCommandResult> {
     const existing = await this.env.DB.prepare(
       `SELECT id, studio_id, resource_id, artist_user_id, service_id, start_at_utc, end_at_utc, status,
-       service_name_snapshot, duration_minutes_snapshot, price_minor_snapshot, currency_snapshot,
+       service_name_snapshot, duration_minutes_snapshot, price_minor_snapshot, subtotal_price_minor_snapshot,
+       discount_minor_snapshot, promo_code_id, promo_code_snapshot, currency_snapshot,
        request_fingerprint, created_at
        FROM bookings WHERE studio_id = ?1 AND idempotency_key = ?2 LIMIT 1`,
     ).bind(command.studioId, command.idempotencyKey).first<StoredBooking>();
@@ -140,16 +150,23 @@ export class BookingCoordinator extends DurableObject<Env> {
         this.env.DB.prepare(
           `INSERT INTO bookings
            (id, studio_id, resource_id, artist_user_id, service_id, start_at_utc, end_at_utc, status,
-            service_name_snapshot, duration_minutes_snapshot, price_minor_snapshot, currency_snapshot,
+           service_name_snapshot, duration_minutes_snapshot, price_minor_snapshot, subtotal_price_minor_snapshot,
+            discount_minor_snapshot, promo_code_id, promo_code_snapshot, currency_snapshot,
             idempotency_key, request_fingerprint, version, created_at, updated_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'confirmed', ?8, ?9, ?10, ?11, ?12, ?13, 1, ?14, ?14)`,
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'confirmed', ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18, ?18)`,
         ).bind(command.bookingId, command.studioId, command.resourceId, command.artistUserId, command.serviceId,
           command.startAtUtc, command.endAtUtc, command.serviceName, command.durationMinutes, command.priceMinor,
-          command.currency, command.idempotencyKey, command.requestFingerprint, command.now),
+          command.subtotalPriceMinor, command.discountMinor, command.promoId, command.promoCode, command.currency,
+          command.idempotencyKey, command.requestFingerprint, command.now),
         ...slotStarts.map((slot) => this.env.DB.prepare(
           `INSERT INTO slot_claims (studio_id, resource_id, slot_start_utc, booking_id, created_at)
            VALUES (?1, ?2, ?3, ?4, ?5)`,
         ).bind(command.studioId, command.resourceId, slot, command.bookingId, command.now)),
+        ...(command.promoId && command.discountMinor > 0 ? [this.env.DB.prepare(
+          `INSERT INTO promo_redemptions
+           (id, studio_id, promo_code_id, user_id, booking_id, discount_minor, status, created_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'applied', ?7)`,
+        ).bind(crypto.randomUUID(), command.studioId, command.promoId, command.artistUserId, command.bookingId, command.discountMinor, command.now)] : []),
         this.env.DB.prepare(
           `INSERT INTO booking_events (id, studio_id, booking_id, actor_user_id, event_type, payload_json, created_at)
            VALUES (?1, ?2, ?3, ?4, 'created', ?5, ?6)`,
@@ -160,6 +177,9 @@ export class BookingCoordinator extends DurableObject<Env> {
           serviceName: command.serviceName,
           durationMinutes: command.durationMinutes,
           priceMinor: command.priceMinor,
+          subtotalPriceMinor: command.subtotalPriceMinor,
+          discountMinor: command.discountMinor,
+          promoCode: command.promoCode,
           currency: command.currency,
         }), command.now),
         this.env.DB.prepare(
@@ -171,6 +191,7 @@ export class BookingCoordinator extends DurableObject<Env> {
       ]);
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('PROMO_MAX_REDEMPTIONS') || message.includes('PROMO_USER_LIMIT')) return { kind: 'promo_unavailable' };
       if (message.includes('UNIQUE constraint failed') || message.includes('SQLITE_CONSTRAINT')) return { kind: 'conflict' };
       throw error;
     }
@@ -189,6 +210,10 @@ export class BookingCoordinator extends DurableObject<Env> {
         service_name_snapshot: command.serviceName,
         duration_minutes_snapshot: command.durationMinutes,
         price_minor_snapshot: command.priceMinor,
+        subtotal_price_minor_snapshot: command.subtotalPriceMinor,
+        discount_minor_snapshot: command.discountMinor,
+        promo_code_id: command.promoId,
+        promo_code_snapshot: command.promoCode,
         currency_snapshot: command.currency,
         request_fingerprint: command.requestFingerprint,
         created_at: command.now,
@@ -199,7 +224,8 @@ export class BookingCoordinator extends DurableObject<Env> {
   async cancelBooking(command: CancelBookingCommand): Promise<CancelBookingResult> {
     const booking = await this.env.DB.prepare(
       `SELECT id, studio_id, resource_id, artist_user_id, service_id, start_at_utc, end_at_utc, status,
-       service_name_snapshot, duration_minutes_snapshot, price_minor_snapshot, currency_snapshot,
+       service_name_snapshot, duration_minutes_snapshot, price_minor_snapshot, subtotal_price_minor_snapshot,
+       discount_minor_snapshot, promo_code_id, promo_code_snapshot, currency_snapshot,
        request_fingerprint, created_at
        FROM bookings WHERE studio_id = ?1 AND resource_id = ?2 AND id = ?3 LIMIT 1`,
     ).bind(command.studioId, command.resourceId, command.bookingId).first<StoredBooking>();
@@ -214,6 +240,10 @@ export class BookingCoordinator extends DurableObject<Env> {
       ).bind(command.now, command.studioId, command.bookingId),
       this.env.DB.prepare('DELETE FROM slot_claims WHERE studio_id = ?1 AND booking_id = ?2')
         .bind(command.studioId, command.bookingId),
+      this.env.DB.prepare(
+        `UPDATE promo_redemptions SET status='reversed', reversed_at=?1
+         WHERE studio_id=?2 AND booking_id=?3 AND status='applied'`,
+      ).bind(command.now, command.studioId, command.bookingId),
       this.env.DB.prepare(
         `INSERT INTO booking_events (id, studio_id, booking_id, actor_user_id, event_type, payload_json, created_at)
          VALUES (?1, ?2, ?3, ?4, 'cancelled', ?5, ?6)`,

@@ -1,4 +1,4 @@
-import type { BlockedSlot, BlockedSlotCreate, Booking, BookingAvailability, BookingCreate } from '@studio/contracts';
+import type { BlockedSlot, BlockedSlotCreate, Booking, BookingAvailability, BookingCreate, PromoQuote, PromoQuoteRequest } from '@studio/contracts';
 import { apiFetch } from '../../lib/api/client';
 import { USE_MOCKS } from '../../lib/env';
 
@@ -16,6 +16,10 @@ export async function fetchBookingAvailability(slug: string, serviceId: string, 
 export async function createBooking(slug: string, input: BookingCreate, idempotencyKey: string) {
   if (USE_MOCKS) return (await import('../../mocks/bookings')).mockCreateBooking(input);
   return apiFetch<Booking>(`/api/studios/${encodeURIComponent(slug)}/bookings`, { method: 'POST', body: input, idempotencyKey });
+}
+
+export async function validateBookingPromo(slug: string, input: PromoQuoteRequest) {
+  return apiFetch<PromoQuote>(`/api/studios/${encodeURIComponent(slug)}/promo-codes/validate`, { method: 'POST', body: input });
 }
 
 export async function fetchBookings(slug: string, signal?: AbortSignal) {

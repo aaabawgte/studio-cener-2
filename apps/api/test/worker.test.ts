@@ -1,4 +1,4 @@
-import { artistValueAccountSchema, blockedSlotSchema, bookingAvailabilitySchema, bookingSchema, healthResponseSchema, hourPackageSchema, managerInvitationCreatedSchema, platformStudioCreatedSchema, portfolioProjectSchema, serviceSchema, studioAccessSchema, teamMemberSchema } from '@studio/contracts';
+import { artistValueAccountSchema, blockedSlotSchema, bookingAvailabilitySchema, bookingSchema, healthResponseSchema, hourPackageSchema, managerInvitationCreatedSchema, platformStudioCreatedSchema, portfolioProjectSchema, promoCodeSchema, promoQuoteSchema, serviceSchema, studioAccessSchema, teamMemberSchema } from '@studio/contracts';
 import { env, exports } from 'cloudflare:workers';
 import { beforeAll, describe, expect, it } from 'vitest';
 import identityMigration from '../../../db/migrations/0001_identity_and_tenancy.sql?raw';
@@ -8,9 +8,10 @@ import platformMigration from '../../../db/migrations/0004_platform_onboarding.s
 import contentMigration from '../../../db/migrations/0005_studio_content.sql?raw';
 import accessMigration from '../../../db/migrations/0006_studio_access_management.sql?raw';
 import valueMigration from '../../../db/migrations/0007_value_ledger.sql?raw';
+import promoMigration from '../../../db/migrations/0008_promo_codes.sql?raw';
 
 beforeAll(async () => {
-  const sql = `${identityMigration}\n${catalogMigration}\n${bookingMigration}\n${platformMigration}\n${contentMigration}\n${accessMigration}\n${valueMigration}`;
+  const sql = `${identityMigration}\n${catalogMigration}\n${bookingMigration}\n${platformMigration}\n${contentMigration}\n${accessMigration}\n${valueMigration}\n${promoMigration}`;
   const triggers = sql.match(/CREATE TRIGGER[\s\S]*?END;/g) ?? [];
   const statements = sql.replace(/CREATE TRIGGER[\s\S]*?END;/g, '')
     .split(';').map((statement) => statement.trim()).filter(Boolean).map((statement) => env.DB.prepare(statement));
@@ -399,6 +400,21 @@ describe('Studio Cener API foundation', () => {
     ));
     expect(forbiddenArtistBlocks.status).toBe(403);
 
+    const createPromoResponse = await exports.default.fetch(new Request('https://api.example.test/api/studios/studio-a/promo-codes', {
+      method: 'POST', headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: 'WELCOME20', description: 'Popust dobrodošlice', discountType: 'percentage', discountValue: 20,
+        minimumSpendMinor: 5000, validFrom: new Date(Date.now() - 60_000).toISOString(), validUntil: new Date(Date.now() + 86_400_000).toISOString(),
+        maxRedemptions: 1, maxRedemptionsPerUser: 1 }),
+    }));
+    expect(createPromoResponse.status).toBe(201);
+    expect(promoCodeSchema.parse(await createPromoResponse.json())).toMatchObject({ code: 'WELCOME20', redemptionCount: 0 });
+    const quoteResponse = await exports.default.fetch(new Request('https://api.example.test/api/studios/studio-a/promo-codes/validate', {
+      method: 'POST', headers: { Cookie: artistCookie ?? '', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serviceId: createdService.id, code: 'welcome20' }),
+    }));
+    expect(quoteResponse.status).toBe(200);
+    expect(promoQuoteSchema.parse(await quoteResponse.json())).toMatchObject({ discountMinor: 2000, totalPriceMinor: 8000 });
+
     let availableSlot: string | undefined;
     for (let offset = 0; offset < 14 && !availableSlot; offset += 1) {
       const candidate = new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
@@ -416,7 +432,7 @@ describe('Studio Cener API foundation', () => {
       {
         method: 'POST',
         headers: { Cookie: artistCookie ?? '', 'Content-Type': 'application/json', 'Idempotency-Key': key },
-        body: JSON.stringify({ serviceId: createdService.id, startAtUtc: availableSlot }),
+        body: JSON.stringify({ serviceId: createdService.id, startAtUtc: availableSlot, promoCode: 'WELCOME20' }),
       },
     ));
     const bookingKeys = ['booking-test-key-0001', 'booking-test-key-0002'];
@@ -424,6 +440,7 @@ describe('Studio Cener API foundation', () => {
     expect(concurrent.map((response) => response.status).sort()).toEqual([201, 409]);
     const winnerIndex = concurrent.findIndex((response) => response.status === 201);
     const booking = bookingSchema.parse(await concurrent[winnerIndex]!.json());
+    expect(booking).toMatchObject({ subtotalPriceMinor: 10000, discountMinor: 2000, priceMinor: 8000, promoCode: 'WELCOME20' });
 
     const toStudioLocalInput = (iso: string) => {
       const parts = new Intl.DateTimeFormat('sv-SE', {
@@ -471,6 +488,8 @@ describe('Studio Cener API foundation', () => {
     const events = await env.DB.prepare('SELECT event_type FROM booking_events WHERE booking_id = ?1 ORDER BY created_at')
       .bind(booking.id).all<{ event_type: string }>();
     expect(events.results.map((event) => event.event_type)).toEqual(['created', 'cancelled']);
+    const redemption = await env.DB.prepare('SELECT status FROM promo_redemptions WHERE booking_id=?1').bind(booking.id).first<{ status: string }>();
+    expect(redemption?.status).toBe('reversed');
 
     const createBlockResponse = await exports.default.fetch(new Request(
       'https://api.example.test/api/studios/studio-a/blocked-slots',
@@ -501,7 +520,7 @@ describe('Studio Cener API foundation', () => {
     const auditCount = await env.DB.prepare(
       'SELECT COUNT(*) AS count FROM audit_logs WHERE studio_id = ?1',
     ).bind('studio_a').first<{ count: number }>();
-    expect(auditCount?.count).toBe(21);
+    expect(auditCount?.count).toBe(22);
 
     const createManagedStudioResponse = await exports.default.fetch(new Request(
       'https://api.example.test/api/platform/studios',

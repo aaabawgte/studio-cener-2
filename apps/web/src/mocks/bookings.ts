@@ -42,6 +42,9 @@ export async function mockCreateBooking(input: BookingCreate): Promise<Booking> 
     serviceName: input.serviceId === 'demo-mix' ? 'Mix' : 'Snimanje vokala',
     durationMinutes: 120,
     priceMinor: input.serviceId === 'demo-mix' ? 15000 : 9000,
+    subtotalPriceMinor: input.serviceId === 'demo-mix' ? 15000 : 9000,
+    discountMinor: 0,
+    promoCode: null,
     currency: 'EUR',
     createdAt: new Date().toISOString(),
   };

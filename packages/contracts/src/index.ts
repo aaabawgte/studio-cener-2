@@ -20,6 +20,7 @@ export const studioPermissionSchema = z.enum([
   'team.manage',
   'portfolio.manage',
   'credits.manage',
+  'promos.manage',
   'analytics.view',
   'studio.settings.manage',
 ]);
@@ -185,6 +186,9 @@ export const bookingSchema = z.object({
   serviceName: z.string().min(1),
   durationMinutes: z.number().int().positive(),
   priceMinor: z.number().int().min(0),
+  subtotalPriceMinor: z.number().int().min(0),
+  discountMinor: z.number().int().min(0),
+  promoCode: z.string().nullable(),
   currency: z.string().regex(/^[A-Z]{3}$/),
   createdAt: z.iso.datetime({ offset: true }),
 });
@@ -193,6 +197,7 @@ export type Booking = z.infer<typeof bookingSchema>;
 export const bookingCreateSchema = z.object({
   serviceId: z.string().min(1),
   startAtUtc: z.iso.datetime({ offset: true }),
+  promoCode: z.string().trim().toUpperCase().min(2).max(40).optional(),
 });
 export type BookingCreate = z.infer<typeof bookingCreateSchema>;
 
@@ -419,3 +424,54 @@ export const creditEntryCreateSchema = z.object({
   reason: z.string().trim().min(2, 'Unesite razlog promjene.').max(300),
 });
 export type CreditEntryCreate = z.infer<typeof creditEntryCreateSchema>;
+
+export const promoCodeStatusSchema = z.enum(['active', 'archived']);
+export const promoDiscountTypeSchema = z.enum(['percentage', 'fixed']);
+export const promoCodeSchema = z.object({
+  id: z.string().min(1),
+  code: z.string().min(2).max(40),
+  description: z.string().max(300).nullable(),
+  discountType: promoDiscountTypeSchema,
+  discountValue: z.number().int().positive(),
+  maxDiscountMinor: z.number().int().positive().nullable(),
+  minimumSpendMinor: z.number().int().min(0),
+  validFrom: z.iso.datetime({ offset: true }),
+  validUntil: z.iso.datetime({ offset: true }),
+  maxRedemptions: z.number().int().positive().nullable(),
+  maxRedemptionsPerUser: z.number().int().positive(),
+  redemptionCount: z.number().int().min(0),
+  status: promoCodeStatusSchema,
+});
+export type PromoCode = z.infer<typeof promoCodeSchema>;
+
+export const promoCodeWriteSchema = z.object({
+  code: z.string().trim().toUpperCase().regex(/^[A-Z0-9_-]{2,40}$/, 'Koristite slova, brojeve, crticu ili donju crtu.'),
+  description: z.string().trim().max(300).nullable().optional(),
+  discountType: promoDiscountTypeSchema,
+  discountValue: z.number().int().positive().max(100_000_000),
+  maxDiscountMinor: z.number().int().positive().max(100_000_000).nullable().optional(),
+  minimumSpendMinor: z.number().int().min(0).max(100_000_000).optional(),
+  validFrom: z.iso.datetime({ offset: true }),
+  validUntil: z.iso.datetime({ offset: true }),
+  maxRedemptions: z.number().int().positive().max(1_000_000).nullable().optional(),
+  maxRedemptionsPerUser: z.number().int().positive().max(10_000).optional(),
+  status: promoCodeStatusSchema.optional(),
+}).superRefine((value, context) => {
+  if (value.discountType === 'percentage' && value.discountValue > 100) context.addIssue({ code: 'custom', path: ['discountValue'], message: 'Postotak ne može biti veći od 100.' });
+  if (Date.parse(value.validUntil) <= Date.parse(value.validFrom)) context.addIssue({ code: 'custom', path: ['validUntil'], message: 'Završetak mora biti nakon početka.' });
+});
+export type PromoCodeWrite = z.infer<typeof promoCodeWriteSchema>;
+
+export const promoQuoteRequestSchema = z.object({
+  serviceId: z.string().min(1),
+  code: z.string().trim().toUpperCase().min(2).max(40),
+});
+export const promoQuoteSchema = z.object({
+  code: z.string().min(1),
+  subtotalPriceMinor: z.number().int().min(0),
+  discountMinor: z.number().int().min(0),
+  totalPriceMinor: z.number().int().min(0),
+  currency: z.string().regex(/^[A-Z]{3}$/),
+});
+export type PromoQuoteRequest = z.infer<typeof promoQuoteRequestSchema>;
+export type PromoQuote = z.infer<typeof promoQuoteSchema>;

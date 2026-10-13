@@ -9,6 +9,7 @@ const ownerPermissions = [
   'team.manage',
   'portfolio.manage',
   'credits.manage',
+  'promos.manage',
   'analytics.view',
   'studio.settings.manage',
 ] as const satisfies readonly StudioPermission[];
@@ -22,6 +23,7 @@ const managerPermissions = [
   'team.manage',
   'portfolio.manage',
   'credits.manage',
+  'promos.manage',
   'analytics.view',
 ] as const satisfies readonly StudioPermission[];
 

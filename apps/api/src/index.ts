@@ -51,6 +51,7 @@ import {
   listValueArtists,
   updateHourPackage,
 } from './value/routes';
+import { createPromoCode, listPromoCodes, updatePromoCode, validatePromoCode } from './promos/routes';
 
 type AppEnvironment = {
   Bindings: AuthBindings;
@@ -137,6 +138,10 @@ app.get('/api/studios/:slug/value/me', getOwnValueAccount);
 app.post('/api/studios/:slug/value/package-grants', grantPackage);
 app.post('/api/studios/:slug/value/package-balances/:balanceId/entries', createPackageEntry);
 app.post('/api/studios/:slug/value/credit-entries', createCreditEntry);
+app.get('/api/studios/:slug/promo-codes', listPromoCodes);
+app.post('/api/studios/:slug/promo-codes', createPromoCode);
+app.put('/api/studios/:slug/promo-codes/:promoId', updatePromoCode);
+app.post('/api/studios/:slug/promo-codes/validate', validatePromoCode);
 app.get('/api/platform/studios', listPlatformStudios);
 app.post('/api/platform/studios', createPlatformStudio);
 app.put('/api/platform/studios/:studioId/license', updateStudioLicense);

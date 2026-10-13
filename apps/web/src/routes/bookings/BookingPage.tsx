@@ -1,7 +1,8 @@
 import { Alert, Button, Card, EmptyState, Field, Input, LoadingState, PageHeader, Select, useToast } from '@studio/ui';
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useOutletContext } from 'react-router';
-import { createBooking, fetchBookingAvailability } from '../../features/bookings/booking-api';
+import { createBooking, fetchBookingAvailability, validateBookingPromo } from '../../features/bookings/booking-api';
+import type { PromoQuote } from '@studio/contracts';
 import { fetchPublicStudio } from '../../features/catalog/catalog-api';
 import type { StudioViewerContext } from '../../features/studio/types';
 import { useAsync } from '../../lib/useAsync';
@@ -24,6 +25,10 @@ export function BookingPage() {
   const [selectedStart, setSelectedStart] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [promoCode, setPromoCode] = useState('');
+  const [promoQuote, setPromoQuote] = useState<PromoQuote | null>(null);
+  const [promoError, setPromoError] = useState<string | null>(null);
+  const [checkingPromo, setCheckingPromo] = useState(false);
 
   useEffect(() => {
     if (!serviceId && catalog.data?.services[0]) setServiceId(catalog.data.services[0].id);
@@ -48,7 +53,7 @@ export function BookingPage() {
     setSubmitting(true);
     setError(null);
     try {
-      await createBooking(ctx.studio.slug, { serviceId, startAtUtc: selectedStart }, crypto.randomUUID());
+      await createBooking(ctx.studio.slug, { serviceId, startAtUtc: selectedStart, ...(promoQuote ? { promoCode: promoQuote.code } : {}) }, crypto.randomUUID());
       toast.success('Termin je potvrđen.');
       await navigate(`/s/${ctx.studio.slug}/me/termini`);
     } catch (caught: unknown) {
@@ -60,6 +65,14 @@ export function BookingPage() {
     }
   }
 
+  async function applyPromo() {
+    if (!serviceId || !promoCode.trim()) return;
+    setCheckingPromo(true); setPromoError(null);
+    try { setPromoQuote(await validateBookingPromo(ctx.studio.slug, { serviceId, code: promoCode })); }
+    catch (caught) { setPromoQuote(null); setPromoError(caught instanceof Error ? caught.message : 'Promo kod nije moguće primijeniti.'); }
+    finally { setCheckingPromo(false); }
+  }
+
   return (
     <>
       <PageHeader title="Rezerviraj termin" description="Odaberite uslugu i jedan od trenutno slobodnih termina." />
@@ -68,7 +81,7 @@ export function BookingPage() {
         <Card>
           <div className="grid gap-5 sm:grid-cols-2">
             <Field label="Usluga" required>
-              <Select value={serviceId} onChange={(event) => { setServiceId(event.target.value); setSelectedStart(null); }} disabled={catalog.status !== 'success'}>
+              <Select value={serviceId} onChange={(event) => { setServiceId(event.target.value); setSelectedStart(null); setPromoQuote(null); }} disabled={catalog.status !== 'success'}>
                 {catalog.data?.services.map((service) => <option key={service.id} value={service.id}>{service.name}</option>)}
               </Select>
             </Field>
@@ -107,9 +120,11 @@ export function BookingPage() {
             <dl className="mt-5 space-y-3 text-sm">
               <div className="flex justify-between gap-4"><dt className="text-ink-subtle">Trajanje</dt><dd>{selectedService.durationMinutes} min</dd></div>
               <div className="flex justify-between gap-4"><dt className="text-ink-subtle">Cijena</dt><dd>{new Intl.NumberFormat('hr-HR', { style: 'currency', currency: selectedService.currency }).format(selectedService.priceMinor / 100)}</dd></div>
+              {promoQuote ? <><div className="flex justify-between gap-4 text-success"><dt>Promo {promoQuote.code}</dt><dd>−{new Intl.NumberFormat('hr-HR', { style: 'currency', currency: promoQuote.currency }).format(promoQuote.discountMinor / 100)}</dd></div><div className="flex justify-between gap-4 font-medium"><dt>Ukupno</dt><dd>{new Intl.NumberFormat('hr-HR', { style: 'currency', currency: promoQuote.currency }).format(promoQuote.totalPriceMinor / 100)}</dd></div></> : null}
               <div className="flex justify-between gap-4"><dt className="text-ink-subtle">Vrijeme</dt><dd>{selectedStart ? timeFormatter.format(new Date(selectedStart)) : '—'}</dd></div>
             </dl>
           ) : null}
+          <div className="mt-5"><Field label="Promo kod" error={promoError ?? undefined}><div className="flex gap-2"><Input value={promoCode} onChange={(event) => { setPromoCode(event.target.value.toUpperCase()); setPromoQuote(null); setPromoError(null); }} maxLength={40} placeholder="WELCOME20" /><Button type="button" variant="secondary" loading={checkingPromo} disabled={!promoCode.trim() || !serviceId} onClick={() => void applyPromo()}>Primijeni</Button></div></Field></div>
           <Button fullWidth className="mt-6" disabled={!selectedStart} loading={submitting} onClick={() => void confirm()}>Potvrdi termin</Button>
           <p className="mt-3 text-xs text-ink-subtle">Termin se potvrđuje odmah. Nema online naplate.</p>
         </Card>
