@@ -509,3 +509,38 @@ export const notificationSchema = z.object({
   createdAt: z.iso.datetime({ offset: true }),
 });
 export type Notification = z.infer<typeof notificationSchema>;
+
+export const analyticsRangeSchema = z.enum(['30d', '90d', '365d']);
+export type AnalyticsRange = z.infer<typeof analyticsRangeSchema>;
+export const studioAnalyticsSchema = z.object({
+  range: analyticsRangeSchema,
+  fromDate: z.iso.date(),
+  toDate: z.iso.date(),
+  timezone: z.string().min(1),
+  currency: z.string().regex(/^[A-Z]{3}$/),
+  summary: z.object({
+    totalBookings: z.number().int().min(0),
+    confirmedBookings: z.number().int().min(0),
+    completedBookings: z.number().int().min(0),
+    cancelledBookings: z.number().int().min(0),
+    uniqueArtists: z.number().int().min(0),
+    returningArtists: z.number().int().min(0),
+    bookingValueMinor: z.number().int().min(0),
+    bookedMinutes: z.number().int().min(0),
+    availableMinutes: z.number().int().min(0),
+    utilizationPercent: z.number().min(0).max(100),
+  }),
+  topServices: z.array(z.object({
+    serviceId: z.string().min(1),
+    serviceName: z.string().min(1),
+    bookings: z.number().int().min(0),
+    valueMinor: z.number().int().min(0),
+  })),
+  daily: z.array(z.object({
+    date: z.iso.date(),
+    bookings: z.number().int().min(0),
+    valueMinor: z.number().int().min(0),
+    bookedMinutes: z.number().int().min(0),
+  })),
+});
+export type StudioAnalytics = z.infer<typeof studioAnalyticsSchema>;

@@ -26,13 +26,12 @@ import { PromoCodesPage } from './routes/owner/PromoCodesPage';
 import { WaitlistPage } from './routes/artist/WaitlistPage';
 import { NotificationsPage } from './routes/artist/NotificationsPage';
 import { OwnerWaitlistPage } from './routes/owner/WaitlistPage';
+import { AnalyticsPage } from './routes/owner/AnalyticsPage';
 
 // Dev-only katalog komponenti; ne ulazi u produkcijski bundle.
 const UiKit = import.meta.env.DEV ? lazy(() => import('./routes/dev/UiKit')) : null;
 
-const ownerRoutes: { id: string; path: string; description: string }[] = [
-  { id: 'analytics', path: 'analitika', description: 'Popunjenost, prihod po usluzi i povratni artisti.' },
-];
+const ownerRoutes: { id: string; path: string; description: string }[] = [];
 
 const artistRoutes: { id: string; path: string; description: string }[] = [
   { id: 'profile', path: 'profil', description: 'Vaši podaci i postavke obavijesti.' },
@@ -66,6 +65,7 @@ export function App() {
             <Route path="paketi-krediti" element={<ValuePage />} />
             <Route path="promo-kodovi" element={<PromoCodesPage />} />
             <Route path="lista-cekanja" element={<OwnerWaitlistPage />} />
+            <Route path="analitika" element={<AnalyticsPage />} />
             <Route path="*" element={<NotFound inline />} />
           </Route>
 

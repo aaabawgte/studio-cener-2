@@ -1,4 +1,4 @@
-import { artistValueAccountSchema, blockedSlotSchema, bookingAvailabilitySchema, bookingSchema, healthResponseSchema, hourPackageSchema, managerInvitationCreatedSchema, notificationSchema, platformStudioCreatedSchema, portfolioProjectSchema, promoCodeSchema, promoQuoteSchema, serviceSchema, studioAccessSchema, teamMemberSchema, waitlistEntrySchema } from '@studio/contracts';
+import { artistValueAccountSchema, blockedSlotSchema, bookingAvailabilitySchema, bookingSchema, healthResponseSchema, hourPackageSchema, managerInvitationCreatedSchema, notificationSchema, platformStudioCreatedSchema, portfolioProjectSchema, promoCodeSchema, promoQuoteSchema, serviceSchema, studioAccessSchema, studioAnalyticsSchema, teamMemberSchema, waitlistEntrySchema } from '@studio/contracts';
 import { env, exports } from 'cloudflare:workers';
 import { beforeAll, describe, expect, it } from 'vitest';
 import identityMigration from '../../../db/migrations/0001_identity_and_tenancy.sql?raw';
@@ -514,6 +514,9 @@ describe('Studio Cener API foundation', () => {
     const waitingEntries = await exports.default.fetch(new Request('https://api.example.test/api/studios/studio-a/waitlist/me', { headers: { Cookie: waitingCookie } }));
     expect(waitingEntries.status).toBe(200);
     await expect(waitingEntries.json()).resolves.toMatchObject({ waitlistEntries: [{ status: 'notified', notificationCount: 1 }] });
+    const analyticsResponse = await exports.default.fetch(new Request('https://api.example.test/api/studios/studio-a/analytics?range=30d', { headers: { Cookie: cookie ?? '' } }));
+    expect(analyticsResponse.status).toBe(200);
+    expect(studioAnalyticsSchema.parse(await analyticsResponse.json())).toMatchObject({ range: '30d', currency: 'EUR', timezone: 'Europe/Zagreb' });
 
     const createBlockResponse = await exports.default.fetch(new Request(
       'https://api.example.test/api/studios/studio-a/blocked-slots',
