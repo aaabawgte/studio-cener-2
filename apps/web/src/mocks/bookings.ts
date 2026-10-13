@@ -48,6 +48,11 @@ export async function mockCreateBooking(input: BookingCreate): Promise<Booking> 
     artistName: null,
     artistEmail: null,
     currency: 'EUR',
+    paymentMethod: 'none',
+    packageBalanceId: null,
+    creditAmountMinor: 0,
+    packageMinutes: 0,
+    valueRefundedAt: null,
     createdAt: new Date().toISOString(),
   };
   bookings = [booking, ...bookings];

@@ -75,6 +75,11 @@ function toBooking(row: StoredBooking & { artist_name?: string; artist_email?: s
     artistName: row.artist_name ?? null,
     artistEmail: row.artist_email ?? null,
     currency: row.currency_snapshot,
+    paymentMethod: row.payment_method,
+    packageBalanceId: row.package_balance_id,
+    creditAmountMinor: row.credit_amount_minor,
+    packageMinutes: row.package_minutes,
+    valueRefundedAt: row.value_refunded_at === null ? null : new Date(row.value_refunded_at).toISOString(),
     createdAt: new Date(row.created_at).toISOString(),
   });
 }
@@ -227,15 +232,20 @@ async function createBookingFor(context: ApiContext, access: StudioAccess, artis
     return context.json<ApiErrorBody>({ code: 'IDEMPOTENCY_KEY_REQUIRED', message: 'A valid Idempotency-Key header is required.' }, 400);
   }
 
+  const requestedPaymentMethod = input.paymentMethod ?? 'none';
+  if ((requestedPaymentMethod === 'package') !== Boolean(input.packageBalanceId)) {
+    return context.json<ApiErrorBody>({ code: 'INVALID_PAYMENT_METHOD', message: 'Odaberite valjani paket za rezervaciju.' }, 422);
+  }
   let start: number;
   try { start = Temporal.Instant.from(input.startAtUtc).epochMilliseconds; } catch {
     return context.json<ApiErrorBody>({ code: 'INVALID_START_TIME', message: 'Invalid start time.' }, 422);
   }
-  const requestFingerprint = `${artistUserId}:${input.serviceId}:${start}:${input.promoCode ?? ''}`;
+  const requestFingerprint = `${artistUserId}:${input.serviceId}:${start}:${input.promoCode ?? ''}:${requestedPaymentMethod}:${input.packageBalanceId ?? ''}`;
   const existing = await context.env.DB.prepare(
     `SELECT id, studio_id, resource_id, artist_user_id, service_id, start_at_utc, end_at_utc, status,
       service_name_snapshot, duration_minutes_snapshot, price_minor_snapshot, subtotal_price_minor_snapshot,
-      discount_minor_snapshot, promo_code_id, promo_code_snapshot, currency_snapshot, request_fingerprint, created_at
+      discount_minor_snapshot, promo_code_id, promo_code_snapshot, currency_snapshot,
+      payment_method,package_balance_id,credit_amount_minor,package_minutes,value_refunded_at,request_fingerprint,created_at
      FROM bookings WHERE studio_id=?1 AND idempotency_key=?2 LIMIT 1`,
   ).bind(access.studio.id, idempotencyKey).first<StoredBooking>();
   if (existing) return existing.request_fingerprint === requestFingerprint
@@ -272,6 +282,8 @@ async function createBookingFor(context: ApiContext, access: StudioAccess, artis
     : null;
   if (promo && !promo.ok) return context.json<ApiErrorBody>({ code: promo.code, message: promo.message }, 422);
   const discountMinor = promo?.ok ? promo.promo.discountMinor : 0;
+  const finalPriceMinor = setup.price_minor - discountMinor;
+  const paymentMethod = requestedPaymentMethod === 'credit' && finalPriceMinor === 0 ? 'none' : requestedPaymentMethod;
   const command: BookingCommand = {
     bookingId: crypto.randomUUID(),
     studioId: setup.studio_id,
@@ -283,21 +295,26 @@ async function createBookingFor(context: ApiContext, access: StudioAccess, artis
     endAtUtc: end,
     serviceName: setup.service_name,
     durationMinutes: setup.duration_minutes,
-    priceMinor: setup.price_minor - discountMinor,
+    priceMinor: finalPriceMinor,
     subtotalPriceMinor: setup.price_minor,
     discountMinor,
     promoId: promo?.ok ? promo.promo.id : null,
     promoCode: promo?.ok ? promo.promo.code : null,
     currency: setup.currency,
+    paymentMethod,
+    packageBalanceId: paymentMethod === 'package' ? input.packageBalanceId ?? null : null,
     idempotencyKey,
     requestFingerprint,
     requestId: context.get('requestId'),
     now: Date.now(),
   };
-  const coordinator = context.env.BOOKING_COORDINATOR.getByName(`${setup.studio_id}:${setup.resource_id}`);
+  const coordinator = context.env.VALUE_COORDINATOR.getByName(`${setup.studio_id}:${artistUserId}`);
   const result = await coordinator.createBooking(command);
   if (result.kind === 'conflict') return context.json<ApiErrorBody>({ code: 'SLOT_UNAVAILABLE', message: 'Selected time is no longer available.' }, 409);
   if (result.kind === 'promo_unavailable') return context.json<ApiErrorBody>({ code: 'PROMO_LIMIT_REACHED', message: 'Promo kod je upravo dosegnuo limit korištenja.' }, 409);
+  if (result.kind === 'insufficient_credit') return context.json<ApiErrorBody>({ code: 'INSUFFICIENT_CREDIT', message: 'Nema dovoljno prepaid kredita za ovu rezervaciju.' }, 409);
+  if (result.kind === 'package_unavailable') return context.json<ApiErrorBody>({ code: 'PACKAGE_UNAVAILABLE', message: 'Odabrani paket više nije dostupan.' }, 409);
+  if (result.kind === 'insufficient_package') return context.json<ApiErrorBody>({ code: 'INSUFFICIENT_PACKAGE', message: 'Paket nema dovoljno preostalih minuta.' }, 409);
   if (result.kind === 'idempotency_conflict') return context.json<ApiErrorBody>({ code: 'IDEMPOTENCY_CONFLICT', message: 'Idempotency key was already used for another request.' }, 409);
   return context.json(toBooking(result.booking), result.kind === 'created' ? 201 : 200);
 }
@@ -356,7 +373,8 @@ export async function listBookings(context: ApiContext) {
   }
   const sql = `SELECT b.id,b.studio_id,b.resource_id,b.artist_user_id,b.service_id,b.start_at_utc,b.end_at_utc,b.status,
     b.service_name_snapshot,b.duration_minutes_snapshot,b.price_minor_snapshot,b.subtotal_price_minor_snapshot,
-    b.discount_minor_snapshot,b.promo_code_id,b.promo_code_snapshot,b.currency_snapshot,b.request_fingerprint,b.created_at,
+    b.discount_minor_snapshot,b.promo_code_id,b.promo_code_snapshot,b.currency_snapshot,
+    b.payment_method,b.package_balance_id,b.credit_amount_minor,b.package_minutes,b.value_refunded_at,b.request_fingerprint,b.created_at,
     u.name AS artist_name,u.email AS artist_email
     FROM bookings b JOIN user u ON u.id=b.artist_user_id
     WHERE ${conditions.join(' AND ')}
@@ -396,7 +414,8 @@ export async function getBookingDetail(context: ApiContext) {
   const booking = await context.env.DB.prepare(
     `SELECT b.id,b.studio_id,b.resource_id,b.artist_user_id,b.service_id,b.start_at_utc,b.end_at_utc,b.status,
       b.service_name_snapshot,b.duration_minutes_snapshot,b.price_minor_snapshot,b.subtotal_price_minor_snapshot,
-      b.discount_minor_snapshot,b.promo_code_id,b.promo_code_snapshot,b.currency_snapshot,b.request_fingerprint,b.created_at,
+      b.discount_minor_snapshot,b.promo_code_id,b.promo_code_snapshot,b.currency_snapshot,
+      b.payment_method,b.package_balance_id,b.credit_amount_minor,b.package_minutes,b.value_refunded_at,b.request_fingerprint,b.created_at,
       u.name AS artist_name,u.email AS artist_email
      FROM bookings b JOIN user u ON u.id=b.artist_user_id
      WHERE b.studio_id=?1 AND b.id=?2 LIMIT 1`,
@@ -570,7 +589,7 @@ export async function cancelBooking(context: ApiContext) {
   if (!canManage && booking.start_at_utc <= Date.now()) {
     return context.json<ApiErrorBody>({ code: 'CANCELLATION_CLOSED', message: 'Prošli termin nije moguće otkazati.' }, 409);
   }
-  const coordinator = context.env.BOOKING_COORDINATOR.getByName(`${access.value.studio.id}:${booking.resource_id}`);
+  const coordinator = context.env.VALUE_COORDINATOR.getByName(`${access.value.studio.id}:${booking.artist_user_id}`);
   const result = await coordinator.cancelBooking({
     studioId: access.value.studio.id,
     resourceId: booking.resource_id,

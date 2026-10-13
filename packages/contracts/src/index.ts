@@ -175,6 +175,8 @@ export type PublicStudio = z.infer<typeof publicStudioSchema>;
 
 export const bookingStatusSchema = z.enum(['confirmed', 'cancelled', 'completed', 'no_show']);
 export type BookingStatus = z.infer<typeof bookingStatusSchema>;
+export const bookingPaymentMethodSchema = z.enum(['none', 'credit', 'package']);
+export type BookingPaymentMethod = z.infer<typeof bookingPaymentMethodSchema>;
 export const bookingSchema = z.object({
   id: z.string().min(1),
   studioId: z.string().min(1),
@@ -193,6 +195,11 @@ export const bookingSchema = z.object({
   artistName: z.string().nullable(),
   artistEmail: z.email().nullable(),
   currency: z.string().regex(/^[A-Z]{3}$/),
+  paymentMethod: bookingPaymentMethodSchema,
+  packageBalanceId: z.string().nullable(),
+  creditAmountMinor: z.number().int().min(0),
+  packageMinutes: z.number().int().min(0),
+  valueRefundedAt: z.iso.datetime({ offset: true }).nullable(),
   createdAt: z.iso.datetime({ offset: true }),
 });
 export type Booking = z.infer<typeof bookingSchema>;
@@ -213,6 +220,8 @@ export const bookingCreateSchema = z.object({
   serviceId: z.string().min(1),
   startAtUtc: z.iso.datetime({ offset: true }),
   promoCode: z.string().trim().toUpperCase().min(2).max(40).optional(),
+  paymentMethod: bookingPaymentMethodSchema.optional(),
+  packageBalanceId: z.string().min(1).optional(),
 });
 export type BookingCreate = z.infer<typeof bookingCreateSchema>;
 export const managedBookingCreateSchema = bookingCreateSchema.extend({ artistUserId: z.string().min(1) });

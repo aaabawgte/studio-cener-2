@@ -5,6 +5,7 @@ import { createBooking, fetchBookingAvailability, validateBookingPromo } from '.
 import type { PromoQuote } from '@studio/contracts';
 import { joinWaitlist } from '../../features/waitlist/waitlist-api';
 import { fetchPublicStudio } from '../../features/catalog/catalog-api';
+import { fetchOwnValueAccount } from '../../features/value/value-api';
 import type { StudioViewerContext } from '../../features/studio/types';
 import { useAsync } from '../../lib/useAsync';
 import { usePageTitle } from '../../lib/usePageTitle';
@@ -21,6 +22,7 @@ export function BookingPage() {
   const navigate = useNavigate();
   const toast = useToast();
   const catalog = useAsync((signal) => fetchPublicStudio(ctx.studio.slug, signal), [ctx.studio.slug]);
+  const valueAccount = useAsync((signal) => fetchOwnValueAccount(ctx.studio.slug, signal), [ctx.studio.slug]);
   const [serviceId, setServiceId] = useState('');
   const [date, setDate] = useState(() => dateInTimezone(ctx.studio.timezone));
   const [selectedStart, setSelectedStart] = useState<string | null>(null);
@@ -31,6 +33,7 @@ export function BookingPage() {
   const [promoError, setPromoError] = useState<string | null>(null);
   const [checkingPromo, setCheckingPromo] = useState(false);
   const [joiningWaitlist, setJoiningWaitlist] = useState(false);
+  const [paymentChoice, setPaymentChoice] = useState('none');
 
   useEffect(() => {
     if (!serviceId && catalog.data?.services[0]) setServiceId(catalog.data.services[0].id);
@@ -43,6 +46,7 @@ export function BookingPage() {
     [ctx.studio.slug, serviceId, date],
   );
   const selectedService = catalog.data?.services.find((service) => service.id === serviceId);
+  const finalPriceMinor = promoQuote?.totalPriceMinor ?? selectedService?.priceMinor ?? 0;
 
   const timeFormatter = useMemo(() => new Intl.DateTimeFormat('hr-HR', {
     timeZone: ctx.studio.timezone,
@@ -55,7 +59,14 @@ export function BookingPage() {
     setSubmitting(true);
     setError(null);
     try {
-      await createBooking(ctx.studio.slug, { serviceId, startAtUtc: selectedStart, ...(promoQuote ? { promoCode: promoQuote.code } : {}) }, crypto.randomUUID());
+      const packageBalanceId = paymentChoice.startsWith('package:') ? paymentChoice.slice('package:'.length) : undefined;
+      await createBooking(ctx.studio.slug, {
+        serviceId,
+        startAtUtc: selectedStart,
+        ...(promoQuote ? { promoCode: promoQuote.code } : {}),
+        paymentMethod: paymentChoice === 'credit' ? 'credit' : packageBalanceId ? 'package' : 'none',
+        ...(packageBalanceId ? { packageBalanceId } : {}),
+      }, crypto.randomUUID());
       toast.success('Termin je potvrđen.');
       await navigate(`/s/${ctx.studio.slug}/me/termini`);
     } catch (caught: unknown) {
@@ -135,6 +146,7 @@ export function BookingPage() {
             </dl>
           ) : null}
           <div className="mt-5"><Field label="Promo kod" error={promoError ?? undefined}><div className="flex gap-2"><Input value={promoCode} onChange={(event) => { setPromoCode(event.target.value.toUpperCase()); setPromoQuote(null); setPromoError(null); }} maxLength={40} placeholder="WELCOME20" /><Button type="button" variant="secondary" loading={checkingPromo} disabled={!promoCode.trim() || !serviceId} onClick={() => void applyPromo()}>Primijeni</Button></div></Field></div>
+          <div className="mt-5"><Field label="Iskoristi pri rezervaciji"><Select value={paymentChoice} onChange={(event) => setPaymentChoice(event.target.value)}><option value="none">Bez kredita ili paketa</option><option value="credit" disabled={!valueAccount.data || valueAccount.data.creditBalanceMinor < finalPriceMinor || finalPriceMinor === 0}>Prepaid kredit {valueAccount.data ? `· ${new Intl.NumberFormat('hr-HR', { style: 'currency', currency: valueAccount.data.currency }).format(valueAccount.data.creditBalanceMinor / 100)}` : ''}</option>{valueAccount.data?.packageBalances.map((balance) => <option key={balance.id} value={`package:${balance.id}`} disabled={balance.status !== 'active' || !selectedService || balance.remainingMinutes < selectedService.durationMinutes}>{balance.packageName} · {balance.remainingMinutes} min</option>)}</Select></Field></div>
           <Button fullWidth className="mt-6" disabled={!selectedStart} loading={submitting} onClick={() => void confirm()}>Potvrdi termin</Button>
           <p className="mt-3 text-xs text-ink-subtle">Termin se potvrđuje odmah. Nema online naplate.</p>
         </Card>

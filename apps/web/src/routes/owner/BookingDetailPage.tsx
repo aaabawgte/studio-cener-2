@@ -9,6 +9,7 @@ import { usePageTitle } from '../../lib/usePageTitle';
 
 const statusLabel = { confirmed: 'Potvrđen', cancelled: 'Otkazan', completed: 'Završen', no_show: 'Nije došao' } as const;
 const eventLabel = { created: 'Termin je kreiran', cancelled: 'Termin je otkazan', completed: 'Termin je završen', no_show: 'Artist nije došao', rescheduled: 'Termin je pomaknut' } as const;
+const paymentLabel = { none: 'Bez kredita', credit: 'Prepaid kredit', package: 'Paket sati' } as const;
 
 function localDate(date: Date, timezone: string) {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
@@ -61,7 +62,8 @@ export function BookingDetailPage() {
       <div className="space-y-6">
         <Card>
           <div className="flex flex-wrap items-start justify-between gap-4"><div><p className="eyebrow">Artist</p><h2 className="mt-1 text-xl">{booking.artistName}</h2><p className="mt-1 text-sm text-ink-subtle">{booking.artistEmail}</p></div><Badge tone={booking.status === 'confirmed' ? 'success' : 'neutral'}>{statusLabel[booking.status]}</Badge></div>
-          <dl className="mt-6 grid gap-4 border-t border-line pt-5 sm:grid-cols-3"><Detail label="Početak" value={dateTime.format(new Date(booking.startAtUtc))} /><Detail label="Završetak" value={dateTime.format(new Date(booking.endAtUtc))} /><Detail label="Cijena" value={money.format(booking.priceMinor / 100)} /></dl>
+          <dl className="mt-6 grid gap-4 border-t border-line pt-5 sm:grid-cols-2 xl:grid-cols-4"><Detail label="Početak" value={dateTime.format(new Date(booking.startAtUtc))} /><Detail label="Završetak" value={dateTime.format(new Date(booking.endAtUtc))} /><Detail label="Cijena" value={money.format(booking.priceMinor / 100)} /><Detail label="Iskorišteno" value={paymentLabel[booking.paymentMethod]} /></dl>
+          {booking.valueRefundedAt ? <p className="mt-4 text-sm text-success">Kredit ili minute automatski su vraćeni pri otkazivanju.</p> : null}
           {booking.promoCode ? <p className="mt-4 text-sm text-ink-subtle">Promo kod: <span className="font-medium text-ink">{booking.promoCode}</span> · popust {money.format(booking.discountMinor / 100)}</p> : null}
         </Card>
         {booking.status === 'confirmed' ? <ReschedulePanel booking={booking} ctx={ctx} onSaved={result.reload} /> : null}

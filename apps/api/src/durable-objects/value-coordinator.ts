@@ -1,4 +1,10 @@
 import { DurableObject } from 'cloudflare:workers';
+import type {
+  BookingCommand,
+  BookingCommandResult,
+  CancelBookingCommand,
+  CancelBookingResult,
+} from './booking-coordinator';
 
 type BaseCommand = {
   studioId: string;
@@ -41,6 +47,8 @@ export type ValueMutationResult =
 type BalanceRow = { remaining_minutes: number; expires_at: number | null; status: string };
 
 export class ValueCoordinator extends DurableObject<Env> {
+  private mutationTail: Promise<void> = Promise.resolve();
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     void ctx.blockConcurrencyWhile(async () => {
@@ -56,7 +64,37 @@ export class ValueCoordinator extends DurableObject<Env> {
     return { status: 'ok' as const, schemaVersion: row.version };
   }
 
-  async grantPackage(command: GrantPackageCommand): Promise<ValueMutationResult> {
+  private async serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.mutationTail;
+    let release = () => {};
+    this.mutationTail = new Promise<void>((resolve) => { release = resolve; });
+    await previous;
+    try { return await operation(); } finally { release(); }
+  }
+
+  grantPackage(command: GrantPackageCommand): Promise<ValueMutationResult> {
+    return this.serialize(() => this.grantPackageUnlocked(command));
+  }
+
+  adjustPackage(command: PackageAdjustmentCommand): Promise<ValueMutationResult> {
+    return this.serialize(() => this.adjustPackageUnlocked(command));
+  }
+
+  adjustCredit(command: CreditAdjustmentCommand): Promise<ValueMutationResult> {
+    return this.serialize(() => this.adjustCreditUnlocked(command));
+  }
+
+  createBooking(command: BookingCommand): Promise<BookingCommandResult> {
+    return this.serialize(async () => await this.env.BOOKING_COORDINATOR
+      .getByName(`${command.studioId}:${command.resourceId}`).createBooking(command) as unknown as BookingCommandResult);
+  }
+
+  cancelBooking(command: CancelBookingCommand): Promise<CancelBookingResult> {
+    return this.serialize(async () => await this.env.BOOKING_COORDINATOR
+      .getByName(`${command.studioId}:${command.resourceId}`).cancelBooking(command) as unknown as CancelBookingResult);
+  }
+
+  private async grantPackageUnlocked(command: GrantPackageCommand): Promise<ValueMutationResult> {
     const replay = await this.env.DB.prepare(
       `SELECT pl.package_balance_id AS id, pb.remaining_minutes AS balance, pb.user_id, pb.package_id, pl.amount_minutes, pl.reason
        FROM package_ledger pl JOIN package_balances pb ON pb.studio_id = pl.studio_id AND pb.id = pl.package_balance_id
@@ -91,7 +129,7 @@ export class ValueCoordinator extends DurableObject<Env> {
     return { kind: 'created', id: command.balanceId, balance: remaining };
   }
 
-  async adjustPackage(command: PackageAdjustmentCommand): Promise<ValueMutationResult> {
+  private async adjustPackageUnlocked(command: PackageAdjustmentCommand): Promise<ValueMutationResult> {
     const replay = await this.env.DB.prepare(
       `SELECT pl.package_balance_id AS id, pb.remaining_minutes AS balance, pl.user_id, pl.amount_minutes, pl.kind, pl.reason
        FROM package_ledger pl JOIN package_balances pb ON pb.studio_id = pl.studio_id AND pb.id = pl.package_balance_id
@@ -133,7 +171,7 @@ export class ValueCoordinator extends DurableObject<Env> {
     return { kind: 'created', id: command.packageBalanceId, balance: next };
   }
 
-  async adjustCredit(command: CreditAdjustmentCommand): Promise<ValueMutationResult> {
+  private async adjustCreditUnlocked(command: CreditAdjustmentCommand): Promise<ValueMutationResult> {
     const replay = await this.env.DB.prepare(
       `SELECT id, user_id, amount_minor, currency, kind, reason FROM credit_ledger WHERE studio_id = ?1 AND idempotency_key = ?2 LIMIT 1`,
     ).bind(command.studioId, command.idempotencyKey).first<{ id: string; user_id: string; amount_minor: number; currency: string; kind: string; reason: string }>();

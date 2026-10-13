@@ -13,9 +13,10 @@ import waitlistMigration from '../../../db/migrations/0009_waitlist_notification
 import bookingNotesMigration from '../../../db/migrations/0010_booking_notes.sql?raw';
 import bookingRescheduleMigration from '../../../db/migrations/0011_booking_rescheduled_events.sql?raw';
 import bookingListIndexesMigration from '../../../db/migrations/0012_booking_list_indexes.sql?raw';
+import bookingValueUsageMigration from '../../../db/migrations/0013_booking_value_usage.sql?raw';
 
 beforeAll(async () => {
-  const sql = `${identityMigration}\n${catalogMigration}\n${bookingMigration}\n${platformMigration}\n${contentMigration}\n${accessMigration}\n${valueMigration}\n${promoMigration}\n${waitlistMigration}\n${bookingNotesMigration}\n${bookingRescheduleMigration}\n${bookingListIndexesMigration}`;
+  const sql = `${identityMigration}\n${catalogMigration}\n${bookingMigration}\n${platformMigration}\n${contentMigration}\n${accessMigration}\n${valueMigration}\n${promoMigration}\n${waitlistMigration}\n${bookingNotesMigration}\n${bookingRescheduleMigration}\n${bookingListIndexesMigration}\n${bookingValueUsageMigration}`;
   const triggers = sql.match(/CREATE TRIGGER[\s\S]*?END;/g) ?? [];
   const statements = sql.replace(/CREATE TRIGGER[\s\S]*?END;/g, '')
     .split(';').map((statement) => statement.trim()).filter(Boolean).map((statement) => env.DB.prepare(statement));
@@ -64,6 +65,10 @@ describe('Studio Cener API foundation', () => {
       env.DB.prepare(`INSERT INTO studios (id,slug,name,timezone,currency,status,created_at,updated_at) VALUES ('value_studio','value-studio','Value Studio','Europe/Zagreb','EUR','active',?1,?1)`).bind(now),
       env.DB.prepare(`INSERT INTO memberships (id,studio_id,user_id,role,status,created_at,updated_at) VALUES ('value_owner_membership','value_studio',?1,'owner','active',?2,?2)`).bind(owner.userId, now),
       env.DB.prepare(`INSERT INTO memberships (id,studio_id,user_id,role,status,created_at,updated_at) VALUES ('value_artist_membership','value_studio',?1,'artist','active',?2,?2)`).bind(artist.userId, now),
+      env.DB.prepare(`INSERT INTO studio_licenses (id,studio_id,plan,status,starts_at,expires_at,grace_ends_at,created_at,updated_at) VALUES ('value_license','value_studio','pro','active',?1,?2,NULL,?1,?1)`).bind(now, now + 31_536_000_000),
+      env.DB.prepare(`INSERT INTO bookable_resources (id,studio_id,name,status,sort_order,created_at,updated_at) VALUES ('value_resource','value_studio','Studio A','active',0,?1,?1)`).bind(now),
+      env.DB.prepare(`INSERT INTO services (id,studio_id,name,description,duration_minutes,price_minor,currency,status,sort_order,created_at,updated_at) VALUES ('value_service','value_studio','Snimanje',NULL,60,5000,'EUR','active',0,?1,?1)`).bind(now),
+      ...Array.from({ length: 7 }, (_, weekday) => env.DB.prepare(`INSERT INTO availability_rules (id,studio_id,resource_id,weekday,start_minute,end_minute,created_at,updated_at) VALUES (?1,'value_studio','value_resource',?2,600,1080,?3,?3)`).bind(`value_rule_${weekday}`, weekday, now)),
     ]);
     const ownerRequest = (path: string, body: unknown, key?: string) => exports.default.fetch(new Request(`https://api.example.test${path}`, {
       method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json', ...(key ? { 'Idempotency-Key': key } : {}) }, body: JSON.stringify(body),
@@ -94,6 +99,43 @@ describe('Studio Cener API foundation', () => {
     const own = await exports.default.fetch(new Request('https://api.example.test/api/studios/value-studio/value/me', { headers: { Cookie: artist.cookie } }));
     expect(own.status).toBe(200);
     expect(artistValueAccountSchema.parse(await own.json())).toMatchObject({ artist: { userId: artist.userId }, creditBalanceMinor: 10000 });
+
+    const future = new Date(Date.now() + 7 * 86_400_000);
+    const dateParts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Zagreb', year: 'numeric', month: '2-digit', day: '2-digit' })
+      .formatToParts(future);
+    const dateMap = Object.fromEntries(dateParts.map((part) => [part.type, part.value]));
+    const date = `${dateMap.year}-${dateMap.month}-${dateMap.day}`;
+    const availabilityResponse = await exports.default.fetch(`https://api.example.test/api/public/studios/value-studio/booking-availability?serviceId=value_service&date=${date}`);
+    const availability = bookingAvailabilitySchema.parse(await availabilityResponse.json());
+    const slot = availability.slots[0]!;
+    const artistBookingRequest = (body: unknown, key: string) => exports.default.fetch(new Request('https://api.example.test/api/studios/value-studio/bookings', {
+      method: 'POST', headers: { Cookie: artist.cookie, 'Content-Type': 'application/json', 'Idempotency-Key': key }, body: JSON.stringify(body),
+    }));
+
+    const creditBookingResponse = await artistBookingRequest({ serviceId: 'value_service', startAtUtc: slot.startAtUtc, paymentMethod: 'credit' }, 'credit-booking-key-0001');
+    expect(creditBookingResponse.status).toBe(201);
+    const creditBooking = bookingSchema.parse(await creditBookingResponse.json());
+    expect(creditBooking).toMatchObject({ paymentMethod: 'credit', creditAmountMinor: 5000, packageMinutes: 0 });
+    const afterCreditUse = await exports.default.fetch(new Request('https://api.example.test/api/studios/value-studio/value/me', { headers: { Cookie: artist.cookie } }));
+    expect(artistValueAccountSchema.parse(await afterCreditUse.json()).creditBalanceMinor).toBe(5000);
+    const cancelCredit = () => exports.default.fetch(new Request(`https://api.example.test/api/studios/value-studio/bookings/${creditBooking.id}/cancel`, { method: 'POST', headers: { Cookie: artist.cookie } }));
+    expect((await cancelCredit()).status).toBe(200);
+    expect((await cancelCredit()).status).toBe(200);
+    const afterCreditRefund = await exports.default.fetch(new Request('https://api.example.test/api/studios/value-studio/value/me', { headers: { Cookie: artist.cookie } }));
+    expect(artistValueAccountSchema.parse(await afterCreditRefund.json()).creditBalanceMinor).toBe(10000);
+
+    const packageBookingResponse = await artistBookingRequest({ serviceId: 'value_service', startAtUtc: slot.startAtUtc, paymentMethod: 'package', packageBalanceId: balanceId }, 'package-booking-key-0001');
+    expect(packageBookingResponse.status).toBe(201);
+    const packageBooking = bookingSchema.parse(await packageBookingResponse.json());
+    expect(packageBooking).toMatchObject({ paymentMethod: 'package', packageBalanceId: balanceId, packageMinutes: 60, creditAmountMinor: 0 });
+    const afterPackageUse = await exports.default.fetch(new Request('https://api.example.test/api/studios/value-studio/value/me', { headers: { Cookie: artist.cookie } }));
+    expect(artistValueAccountSchema.parse(await afterPackageUse.json()).packageBalances[0]?.remainingMinutes).toBe(90);
+    const cancelPackage = await exports.default.fetch(new Request(`https://api.example.test/api/studios/value-studio/bookings/${packageBooking.id}/cancel`, { method: 'POST', headers: { Cookie: artist.cookie } }));
+    expect(cancelPackage.status).toBe(200);
+    const afterPackageRefund = await exports.default.fetch(new Request('https://api.example.test/api/studios/value-studio/value/me', { headers: { Cookie: artist.cookie } }));
+    expect(artistValueAccountSchema.parse(await afterPackageRefund.json()).packageBalances[0]?.remainingMinutes).toBe(150);
+    const bookingLedger = await env.DB.prepare(`SELECT kind,COUNT(*) AS total FROM credit_ledger WHERE studio_id='value_studio' AND booking_id=?1 GROUP BY kind ORDER BY kind`).bind(creditBooking.id).all();
+    expect(bookingLedger.results).toEqual([{ kind: 'refund', total: 1 }, { kind: 'use', total: 1 }]);
     await expect(env.DB.prepare('UPDATE credit_ledger SET reason=?1 WHERE studio_id=?2').bind('Promijenjeno', 'value_studio').run()).rejects.toThrow(/append-only/);
   });
 
