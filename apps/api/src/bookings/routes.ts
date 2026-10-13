@@ -5,6 +5,7 @@ import {
   bookingCreateSchema,
   bookingDetailSchema,
   bookingNoteCreateSchema,
+  bookingRescheduleSchema,
   bookingStatusUpdateSchema,
   bookingTimelineEntrySchema,
   managedBookingCreateSchema,
@@ -40,6 +41,14 @@ type BookingSetup = {
 
 type RuleRow = { start_minute: number; end_minute: number };
 type BusyRow = { start_at_utc: number; end_at_utc: number };
+type RescheduleSetup = {
+  id: string;
+  studio_id: string;
+  resource_id: string;
+  service_id: string;
+  duration_minutes_snapshot: number;
+  status: string;
+};
 
 function param(context: ApiContext, name: string) {
   return context.req.param(name) ?? '';
@@ -356,6 +365,109 @@ export async function getBookingDetail(context: ApiContext) {
       ? { id: entry.id, kind: 'event', eventType: entry.event_type, actorName: entry.actor_name, createdAt: new Date(entry.created_at).toISOString() }
       : { id: entry.id, kind: 'note', body: entry.body, actorName: entry.actor_name, createdAt: new Date(entry.created_at).toISOString() })),
   }));
+}
+
+async function getRescheduleSetup(context: ApiContext, studioId: string) {
+  return context.env.DB.prepare(
+    `SELECT id,studio_id,resource_id,service_id,duration_minutes_snapshot,status
+     FROM bookings WHERE studio_id=?1 AND id=?2 LIMIT 1`,
+  ).bind(studioId, param(context, 'bookingId')).first<RescheduleSetup>();
+}
+
+export async function getBookingRescheduleAvailability(context: ApiContext) {
+  const access = await resolveStudioAccess(context.env, context.req.raw, param(context, 'slug'), 'bookings.manage');
+  if (!access.ok) return context.json(access.error.body, access.error.status);
+  const booking = await getRescheduleSetup(context, access.value.studio.id);
+  if (!booking) return context.json<ApiErrorBody>({ code: 'BOOKING_NOT_FOUND', message: 'Booking not found.' }, 404);
+  if (booking.status !== 'confirmed') return context.json<ApiErrorBody>({ code: 'INVALID_BOOKING_STATUS', message: 'Samo potvrđeni termin moguće je pomaknuti.' }, 409);
+  const date = context.req.query('date') ?? '';
+  try {
+    if (!isBookableDate(date, access.value.studio.timezone)) throw new Error('invalid date');
+  } catch {
+    return context.json<ApiErrorBody>({ code: 'INVALID_AVAILABILITY_REQUEST', message: 'Datum nije dostupan.' }, 422);
+  }
+  const rules = await context.env.DB.prepare(
+    `SELECT start_minute,end_minute FROM availability_rules
+     WHERE studio_id=?1 AND resource_id=?2 AND weekday=?3 ORDER BY start_minute`,
+  ).bind(booking.studio_id, booking.resource_id, weekdayForDate(date)).all<RuleRow>();
+  const bounds = localDateBounds(date, access.value.studio.timezone);
+  const busy = await context.env.DB.prepare(
+    `SELECT start_at_utc,end_at_utc FROM blocked_slots
+     WHERE studio_id=?1 AND resource_id=?2 AND start_at_utc<?4 AND end_at_utc>?3
+     UNION ALL
+     SELECT start_at_utc,end_at_utc FROM bookings
+     WHERE studio_id=?1 AND resource_id=?2 AND id<>?5 AND status='confirmed' AND start_at_utc<?4 AND end_at_utc>?3`,
+  ).bind(booking.studio_id, booking.resource_id, bounds.start, bounds.end, booking.id).all<BusyRow>();
+  const slots: { startAtUtc: string; endAtUtc: string }[] = [];
+  const now = Date.now();
+  for (const rule of rules.results) {
+    for (let minute = rule.start_minute; minute + booking.duration_minutes_snapshot <= rule.end_minute; minute += 15) {
+      try {
+        const start = localMinuteToEpoch(date, minute, access.value.studio.timezone);
+        const end = start + booking.duration_minutes_snapshot * 60_000;
+        if (start <= now || busy.results.some((item) => item.start_at_utc < end && item.end_at_utc > start)) continue;
+        slots.push({ startAtUtc: new Date(start).toISOString(), endAtUtc: new Date(end).toISOString() });
+      } catch {
+        // DST može ukloniti ili udvostručiti lokalno vrijeme; takav termin ne nudimo.
+      }
+    }
+  }
+  return context.json(bookingAvailabilitySchema.parse({
+    date,
+    timezone: access.value.studio.timezone,
+    serviceId: booking.service_id,
+    durationMinutes: booking.duration_minutes_snapshot,
+    slots,
+  }));
+}
+
+export async function rescheduleBooking(context: ApiContext) {
+  const access = await resolveStudioAccess(context.env, context.req.raw, param(context, 'slug'), 'bookings.manage');
+  if (!access.ok) return context.json(access.error.body, access.error.status);
+  let body: unknown;
+  try { body = await context.req.json(); } catch { body = undefined; }
+  const parsed = bookingRescheduleSchema.safeParse(body);
+  if (!parsed.success) return context.json<ApiErrorBody>({ code: 'VALIDATION_ERROR', message: 'Odaberite valjani novi termin.' }, 422);
+  const booking = await getRescheduleSetup(context, access.value.studio.id);
+  if (!booking) return context.json<ApiErrorBody>({ code: 'BOOKING_NOT_FOUND', message: 'Booking not found.' }, 404);
+  if (booking.status !== 'confirmed') return context.json<ApiErrorBody>({ code: 'INVALID_BOOKING_STATUS', message: 'Samo potvrđeni termin moguće je pomaknuti.' }, 409);
+  let start: number;
+  try { start = Temporal.Instant.from(parsed.data.startAtUtc).epochMilliseconds; } catch {
+    return context.json<ApiErrorBody>({ code: 'INVALID_START_TIME', message: 'Novi termin nije valjan.' }, 422);
+  }
+  const local = instantInTimezone(start, access.value.studio.timezone);
+  const localMinute = local.hour * 60 + local.minute;
+  const localDate = local.toPlainDate().toString();
+  let canonicalStart: number;
+  try { canonicalStart = localMinuteToEpoch(localDate, localMinute, access.value.studio.timezone); } catch {
+    return context.json<ApiErrorBody>({ code: 'INVALID_START_TIME', message: 'Novi termin nije valjan.' }, 422);
+  }
+  if (!isBookableDate(localDate, access.value.studio.timezone) || canonicalStart !== start
+    || local.second !== 0 || local.millisecond !== 0 || localMinute % 15 !== 0 || start <= Date.now()) {
+    return context.json<ApiErrorBody>({ code: 'INVALID_START_TIME', message: 'Novi termin nije dostupan.' }, 422);
+  }
+  const end = start + booking.duration_minutes_snapshot * 60_000;
+  const rule = await context.env.DB.prepare(
+    `SELECT start_minute,end_minute FROM availability_rules
+     WHERE studio_id=?1 AND resource_id=?2 AND weekday=?3 AND start_minute<=?4 AND end_minute>=?5 LIMIT 1`,
+  ).bind(booking.studio_id, booking.resource_id, local.dayOfWeek % 7, localMinute,
+    localMinute + booking.duration_minutes_snapshot).first<RuleRow>();
+  if (!rule) return context.json<ApiErrorBody>({ code: 'OUTSIDE_WORKING_HOURS', message: 'Novi termin je izvan radnog vremena.' }, 422);
+  const coordinator = context.env.BOOKING_COORDINATOR.getByName(`${booking.studio_id}:${booking.resource_id}`);
+  const result = await coordinator.rescheduleBooking({
+    studioId: booking.studio_id,
+    resourceId: booking.resource_id,
+    bookingId: booking.id,
+    actorUserId: access.value.actor.userId,
+    startAtUtc: start,
+    endAtUtc: end,
+    requestId: context.get('requestId'),
+    now: Date.now(),
+  });
+  if (result.kind === 'not_found') return context.json<ApiErrorBody>({ code: 'BOOKING_NOT_FOUND', message: 'Booking not found.' }, 404);
+  if (result.kind === 'invalid_status') return context.json<ApiErrorBody>({ code: 'INVALID_BOOKING_STATUS', message: 'Termin se više ne može pomaknuti.' }, 409);
+  if (result.kind === 'conflict') return context.json<ApiErrorBody>({ code: 'SLOT_UNAVAILABLE', message: 'Odabrani termin više nije slobodan.' }, 409);
+  return context.json(toBooking(result.booking));
 }
 
 export async function createBookingNote(context: ApiContext) {

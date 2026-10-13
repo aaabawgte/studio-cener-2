@@ -1,14 +1,20 @@
-import type { BookingTimelineEntry } from '@studio/contracts';
-import { Alert, Badge, Button, Card, EmptyState, Field, LoadingState, PageHeader, Textarea, buttonStyles, useToast } from '@studio/ui';
+import type { Booking, BookingTimelineEntry } from '@studio/contracts';
+import { Alert, Badge, Button, Card, ConfirmDialog, EmptyState, Field, Input, LoadingState, PageHeader, Textarea, buttonStyles, useToast } from '@studio/ui';
 import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useOutletContext, useParams } from 'react-router';
-import { createBookingNote, fetchBookingDetail } from '../../features/bookings/booking-api';
+import { createBookingNote, fetchBookingDetail, fetchBookingRescheduleAvailability, rescheduleBooking } from '../../features/bookings/booking-api';
 import type { StudioViewerContext } from '../../features/studio/types';
 import { useAsync } from '../../lib/useAsync';
 import { usePageTitle } from '../../lib/usePageTitle';
 
 const statusLabel = { confirmed: 'Potvrđen', cancelled: 'Otkazan', completed: 'Završen', no_show: 'Nije došao' } as const;
-const eventLabel = { created: 'Termin je kreiran', cancelled: 'Termin je otkazan', completed: 'Termin je završen', no_show: 'Artist nije došao' } as const;
+const eventLabel = { created: 'Termin je kreiran', cancelled: 'Termin je otkazan', completed: 'Termin je završen', no_show: 'Artist nije došao', rescheduled: 'Termin je pomaknut' } as const;
+
+function localDate(date: Date, timezone: string) {
+  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(date);
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+}
 
 export function BookingDetailPage() {
   usePageTitle('Detalji termina');
@@ -58,6 +64,7 @@ export function BookingDetailPage() {
           <dl className="mt-6 grid gap-4 border-t border-line pt-5 sm:grid-cols-3"><Detail label="Početak" value={dateTime.format(new Date(booking.startAtUtc))} /><Detail label="Završetak" value={dateTime.format(new Date(booking.endAtUtc))} /><Detail label="Cijena" value={money.format(booking.priceMinor / 100)} /></dl>
           {booking.promoCode ? <p className="mt-4 text-sm text-ink-subtle">Promo kod: <span className="font-medium text-ink">{booking.promoCode}</span> · popust {money.format(booking.discountMinor / 100)}</p> : null}
         </Card>
+        {booking.status === 'confirmed' ? <ReschedulePanel booking={booking} ctx={ctx} onSaved={result.reload} /> : null}
         <Card>
           <h2 className="text-xl">Interna bilješka</h2><p className="mt-1 text-sm text-ink-subtle">Vidljiva je samo owneru i managerima studija.</p>
           <form className="mt-5" onSubmit={(event) => void submitNote(event)}><Field label="Nova bilješka" required><Textarea value={note} onChange={(event) => setNote(event.target.value)} maxLength={1000} rows={4} /></Field><div className="mt-3 flex justify-end"><Button type="submit" loading={saving} disabled={!note.trim()}>Spremi bilješku</Button></div></form>
@@ -66,6 +73,49 @@ export function BookingDetailPage() {
       <Card><p className="eyebrow">Povijest</p><h2 className="mt-1 text-xl">Aktivnosti termina</h2><Timeline entries={timeline} format={dateTime} /></Card>
     </div>
   </>;
+}
+
+function ReschedulePanel({ booking, ctx, onSaved }: { booking: Booking; ctx: StudioViewerContext; onSaved: () => void }) {
+  const toast = useToast();
+  const today = localDate(new Date(), ctx.studio.timezone);
+  const currentDate = localDate(new Date(booking.startAtUtc), ctx.studio.timezone);
+  const [date, setDate] = useState(currentDate >= today ? currentDate : today);
+  const [selectedStart, setSelectedStart] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const availability = useAsync((signal) => fetchBookingRescheduleAvailability(ctx.studio.slug, booking.id, date, signal), [ctx.studio.slug, booking.id, date]);
+  const time = useMemo(() => new Intl.DateTimeFormat('hr-HR', { timeZone: ctx.studio.timezone, hour: '2-digit', minute: '2-digit' }), [ctx.studio.timezone]);
+  const slots = availability.data?.slots.filter((slot) => slot.startAtUtc !== booking.startAtUtc) ?? [];
+
+  async function confirm() {
+    if (!selectedStart) return;
+    setSaving(true);
+    try {
+      await rescheduleBooking(ctx.studio.slug, booking.id, selectedStart);
+      toast.success('Termin je pomaknut.');
+      setConfirming(false);
+      setSelectedStart(null);
+      onSaved();
+    } catch (caught: unknown) {
+      toast.error('Termin nije pomaknut', caught instanceof Error ? caught.message : undefined);
+      setConfirming(false);
+      setSelectedStart(null);
+      availability.reload();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <Card>
+    <h2 className="text-xl">Pomakni termin</h2><p className="mt-1 text-sm text-ink-subtle">Odaberi novi slobodan termin. Trajanje, cijena i promo kod ostaju isti.</p>
+    <div className="mt-5 max-w-xs"><Field label="Novi datum" required><Input type="date" min={today} value={date} onChange={(event) => { setDate(event.target.value); setSelectedStart(null); }} /></Field></div>
+    {availability.status === 'loading' ? <LoadingState className="py-8" /> : null}
+    {availability.status === 'error' ? <Alert tone="danger" className="mt-4">Slobodne termine trenutno nije moguće učitati.</Alert> : null}
+    {availability.status === 'success' && !slots.length ? <EmptyState size="compact" icon="calendar" title="Nema drugih slobodnih termina" /> : null}
+    {slots.length ? <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">{slots.map((slot) => <button key={slot.startAtUtc} type="button" aria-pressed={selectedStart === slot.startAtUtc} onClick={() => setSelectedStart(slot.startAtUtc)} className="h-11 rounded-control bg-surface text-sm shadow-hairline hover:bg-accent-soft aria-pressed:bg-ink aria-pressed:text-ink-inverse">{time.format(new Date(slot.startAtUtc))}</button>)}</div> : null}
+    <div className="mt-5 flex justify-end"><Button disabled={!selectedStart} onClick={() => setConfirming(true)}>Pomakni termin</Button></div>
+    <ConfirmDialog open={confirming} onClose={() => setConfirming(false)} onConfirm={() => void confirm()} loading={saving} title="Potvrditi novi termin?" description={selectedStart ? `Novi početak: ${new Intl.DateTimeFormat('hr-HR', { timeZone: ctx.studio.timezone, dateStyle: 'medium', timeStyle: 'short' }).format(new Date(selectedStart))}.` : undefined} confirmLabel="Potvrdi pomicanje" />
+  </Card>;
 }
 
 function Detail({ label, value }: { label: string; value: string }) {

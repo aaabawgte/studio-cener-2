@@ -13,9 +13,11 @@ import {
   deleteBlockedSlot,
   getBookingAvailability,
   getBookingDetail,
+  getBookingRescheduleAvailability,
   listBlockedSlots,
   listBookings,
   listBookingArtists,
+  rescheduleBooking,
   updateBookingStatus,
 } from './bookings/routes';
 import { BookingCoordinator } from './durable-objects/booking-coordinator';
@@ -138,6 +140,8 @@ app.get('/api/studios/:slug/bookings', listBookings);
 app.get('/api/studios/:slug/booking-artists', listBookingArtists);
 app.get('/api/studios/:slug/bookings/:bookingId', getBookingDetail);
 app.post('/api/studios/:slug/bookings/:bookingId/notes', createBookingNote);
+app.get('/api/studios/:slug/bookings/:bookingId/reschedule-availability', getBookingRescheduleAvailability);
+app.post('/api/studios/:slug/bookings/:bookingId/reschedule', rescheduleBooking);
 app.post('/api/studios/:slug/bookings/:bookingId/cancel', cancelBooking);
 app.post('/api/studios/:slug/bookings/:bookingId/status', updateBookingStatus);
 app.get('/api/studios/:slug/blocked-slots', listBlockedSlots);

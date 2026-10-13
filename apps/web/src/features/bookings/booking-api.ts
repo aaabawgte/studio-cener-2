@@ -46,6 +46,18 @@ export async function createBookingNote(slug: string, bookingId: string, body: s
   });
 }
 
+export async function fetchBookingRescheduleAvailability(slug: string, bookingId: string, date: string, signal?: AbortSignal) {
+  const query = new URLSearchParams({ date });
+  return apiFetch<BookingAvailability>(`/api/studios/${encodeURIComponent(slug)}/bookings/${encodeURIComponent(bookingId)}/reschedule-availability?${query}`, { signal });
+}
+
+export async function rescheduleBooking(slug: string, bookingId: string, startAtUtc: string) {
+  return apiFetch<Booking>(`/api/studios/${encodeURIComponent(slug)}/bookings/${encodeURIComponent(bookingId)}/reschedule`, {
+    method: 'POST',
+    body: { startAtUtc },
+  });
+}
+
 export async function cancelBooking(slug: string, bookingId: string) {
   if (USE_MOCKS) return (await import('../../mocks/bookings')).mockCancelBooking(bookingId);
   return apiFetch<Booking>(`/api/studios/${encodeURIComponent(slug)}/bookings/${encodeURIComponent(bookingId)}/cancel`, { method: 'POST', body: {} });

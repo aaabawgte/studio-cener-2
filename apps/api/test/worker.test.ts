@@ -11,9 +11,10 @@ import valueMigration from '../../../db/migrations/0007_value_ledger.sql?raw';
 import promoMigration from '../../../db/migrations/0008_promo_codes.sql?raw';
 import waitlistMigration from '../../../db/migrations/0009_waitlist_notifications.sql?raw';
 import bookingNotesMigration from '../../../db/migrations/0010_booking_notes.sql?raw';
+import bookingRescheduleMigration from '../../../db/migrations/0011_booking_rescheduled_events.sql?raw';
 
 beforeAll(async () => {
-  const sql = `${identityMigration}\n${catalogMigration}\n${bookingMigration}\n${platformMigration}\n${contentMigration}\n${accessMigration}\n${valueMigration}\n${promoMigration}\n${waitlistMigration}\n${bookingNotesMigration}`;
+  const sql = `${identityMigration}\n${catalogMigration}\n${bookingMigration}\n${platformMigration}\n${contentMigration}\n${accessMigration}\n${valueMigration}\n${promoMigration}\n${waitlistMigration}\n${bookingNotesMigration}\n${bookingRescheduleMigration}`;
   const triggers = sql.match(/CREATE TRIGGER[\s\S]*?END;/g) ?? [];
   const statements = sql.replace(/CREATE TRIGGER[\s\S]*?END;/g, '')
     .split(';').map((statement) => statement.trim()).filter(Boolean).map((statement) => env.DB.prepare(statement));
@@ -560,6 +561,55 @@ describe('Studio Cener API foundation', () => {
       .bind(managedBooking.id).first<{ actor_user_id: string }>();
     expect(managedEvent?.actor_user_id).toBe(user.id);
 
+    const rescheduleDate = toStudioLocalInput(managedBooking.startAtUtc).slice(0, 10);
+    const artistRescheduleAvailability = await exports.default.fetch(new Request(
+      `https://api.example.test/api/studios/studio-a/bookings/${managedBooking.id}/reschedule-availability?date=${rescheduleDate}`,
+      { headers: { Cookie: artistCookie ?? '' } },
+    ));
+    expect(artistRescheduleAvailability.status).toBe(403);
+    const rescheduleAvailabilityResponse = await exports.default.fetch(new Request(
+      `https://api.example.test/api/studios/studio-a/bookings/${managedBooking.id}/reschedule-availability?date=${rescheduleDate}`,
+      { headers: { Cookie: cookie ?? '' } },
+    ));
+    expect(rescheduleAvailabilityResponse.status).toBe(200);
+    const rescheduleAvailability = bookingAvailabilitySchema.parse(await rescheduleAvailabilityResponse.json());
+    const rescheduledStart = rescheduleAvailability.slots.find((slot) => slot.startAtUtc !== managedBooking.startAtUtc)?.startAtUtc;
+    expect(rescheduledStart).toBeTruthy();
+    const artistReschedule = await exports.default.fetch(new Request(
+      `https://api.example.test/api/studios/studio-a/bookings/${managedBooking.id}/reschedule`,
+      { method: 'POST', headers: { Cookie: artistCookie ?? '', 'Content-Type': 'application/json' }, body: JSON.stringify({ startAtUtc: rescheduledStart }) },
+    ));
+    expect(artistReschedule.status).toBe(403);
+    const rescheduleResponse = await exports.default.fetch(new Request(
+      `https://api.example.test/api/studios/studio-a/bookings/${managedBooking.id}/reschedule`,
+      { method: 'POST', headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json' }, body: JSON.stringify({ startAtUtc: rescheduledStart }) },
+    ));
+    expect(rescheduleResponse.status).toBe(200);
+    expect(bookingSchema.parse(await rescheduleResponse.json()).startAtUtc).toBe(rescheduledStart);
+    const oldClaim = await env.DB.prepare(
+      'SELECT COUNT(*) AS count FROM slot_claims WHERE booking_id=?1 AND slot_start_utc=?2',
+    ).bind(managedBooking.id, new Date(managedBooking.startAtUtc).getTime()).first<{ count: number }>();
+    const newClaims = await env.DB.prepare('SELECT COUNT(*) AS count FROM slot_claims WHERE booking_id=?1')
+      .bind(managedBooking.id).first<{ count: number }>();
+    expect(oldClaim?.count).toBe(0);
+    expect(newClaims?.count).toBe(managedBooking.durationMinutes / 15);
+    const rescheduleReplay = await exports.default.fetch(new Request(
+      `https://api.example.test/api/studios/studio-a/bookings/${managedBooking.id}/reschedule`,
+      { method: 'POST', headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json' }, body: JSON.stringify({ startAtUtc: rescheduledStart }) },
+    ));
+    expect(rescheduleReplay.status).toBe(200);
+    const rescheduleEvent = await env.DB.prepare(
+      'SELECT actor_user_id,COUNT(*) OVER () AS event_count FROM booking_events WHERE booking_id=?1 AND event_type=\'rescheduled\'',
+    ).bind(managedBooking.id).first<{ actor_user_id: string; event_count: number }>();
+    expect(rescheduleEvent?.actor_user_id).toBe(user.id);
+    expect(rescheduleEvent?.event_count).toBe(1);
+    const artistNotificationsResponse = await exports.default.fetch(new Request(
+      'https://api.example.test/api/studios/studio-a/notifications', { headers: { Cookie: artistCookie ?? '' } },
+    ));
+    expect(artistNotificationsResponse.status).toBe(200);
+    const artistNotifications = await artistNotificationsResponse.json<{ notifications: unknown[] }>();
+    expect(notificationSchema.parse(artistNotifications.notifications[0])).toMatchObject({ type: 'booking_rescheduled', entityId: managedBooking.id });
+
     const earlyCompletionResponse = await exports.default.fetch(new Request(
       `https://api.example.test/api/studios/studio-a/bookings/${managedBooking.id}/status`,
       { method: 'POST', headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'completed' }) },
@@ -604,16 +654,16 @@ describe('Studio Cener API foundation', () => {
     expect(detailResponse.status).toBe(200);
     const detail = bookingDetailSchema.parse(await detailResponse.json());
     expect(detail.booking.id).toBe(managedBooking.id);
-    expect(detail.timeline).toHaveLength(3);
+    expect(detail.timeline).toHaveLength(4);
     expect(detail.timeline.map((entry) => entry.kind === 'event' ? entry.eventType : entry.body))
-      .toEqual(expect.arrayContaining(['created', 'completed', 'Artist preferira tiši monitoring.']));
+      .toEqual(expect.arrayContaining(['created', 'rescheduled', 'completed', 'Artist preferira tiši monitoring.']));
     await expect(env.DB.prepare('UPDATE booking_notes SET body=?1 WHERE booking_id=?2')
       .bind('Promijenjeno', managedBooking.id).run()).rejects.toThrow(/append-only/);
 
     const auditCount = await env.DB.prepare(
       'SELECT COUNT(*) AS count FROM audit_logs WHERE studio_id = ?1',
     ).bind('studio_a').first<{ count: number }>();
-    expect(auditCount?.count).toBe(27);
+    expect(auditCount?.count).toBe(28);
 
     const createManagedStudioResponse = await exports.default.fetch(new Request(
       'https://api.example.test/api/platform/studios',

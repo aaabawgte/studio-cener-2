@@ -82,6 +82,23 @@ export type UpdateBookingStatusResult =
   | { kind: 'invalid_status' }
   | { kind: 'too_early' };
 
+export type RescheduleBookingCommand = {
+  studioId: string;
+  resourceId: string;
+  bookingId: string;
+  actorUserId: string;
+  startAtUtc: number;
+  endAtUtc: number;
+  requestId: string;
+  now: number;
+};
+
+export type RescheduleBookingResult =
+  | { kind: 'rescheduled' | 'replayed'; booking: StoredBooking }
+  | { kind: 'not_found' }
+  | { kind: 'invalid_status' }
+  | { kind: 'conflict' };
+
 export type StoredBlockedSlot = {
   id: string;
   studio_id: string;
@@ -325,6 +342,88 @@ export class BookingCoordinator extends DurableObject<Env> {
         JSON.stringify({ before: { status: 'confirmed' }, after: { status: command.status } }), command.requestId, command.now),
     ]);
     return { kind: 'updated', booking: { ...booking, status: command.status } };
+  }
+
+  async rescheduleBooking(command: RescheduleBookingCommand): Promise<RescheduleBookingResult> {
+    const booking = await this.env.DB.prepare(
+      `SELECT id,studio_id,resource_id,artist_user_id,service_id,start_at_utc,end_at_utc,status,
+       service_name_snapshot,duration_minutes_snapshot,price_minor_snapshot,subtotal_price_minor_snapshot,
+       discount_minor_snapshot,promo_code_id,promo_code_snapshot,currency_snapshot,request_fingerprint,created_at
+       FROM bookings WHERE studio_id=?1 AND resource_id=?2 AND id=?3 LIMIT 1`,
+    ).bind(command.studioId, command.resourceId, command.bookingId).first<StoredBooking>();
+    if (!booking) return { kind: 'not_found' };
+    if (booking.status !== 'confirmed') return { kind: 'invalid_status' };
+    if (booking.start_at_utc === command.startAtUtc && booking.end_at_utc === command.endAtUtc) {
+      return { kind: 'replayed', booking };
+    }
+    const overlap = await this.env.DB.prepare(
+      `SELECT id FROM blocked_slots
+       WHERE studio_id=?1 AND resource_id=?2 AND start_at_utc<?4 AND end_at_utc>?3
+       UNION ALL
+       SELECT id FROM bookings
+       WHERE studio_id=?1 AND resource_id=?2 AND id<>?5 AND status='confirmed' AND start_at_utc<?4 AND end_at_utc>?3
+       LIMIT 1`,
+    ).bind(command.studioId, command.resourceId, command.startAtUtc, command.endAtUtc, command.bookingId).first();
+    if (overlap) return { kind: 'conflict' };
+    const slotStarts: number[] = [];
+    for (let slot = command.startAtUtc; slot < command.endAtUtc; slot += 15 * 60_000) slotStarts.push(slot);
+    const change = {
+      before: { startAtUtc: booking.start_at_utc, endAtUtc: booking.end_at_utc },
+      after: { startAtUtc: command.startAtUtc, endAtUtc: command.endAtUtc },
+    };
+    try {
+      await this.env.DB.batch([
+        this.env.DB.prepare('DELETE FROM slot_claims WHERE studio_id=?1 AND booking_id=?2')
+          .bind(command.studioId, command.bookingId),
+        this.env.DB.prepare(
+          `UPDATE bookings SET start_at_utc=?1,end_at_utc=?2,version=version+1,updated_at=?3
+           WHERE studio_id=?4 AND id=?5 AND status='confirmed'`,
+        ).bind(command.startAtUtc, command.endAtUtc, command.now, command.studioId, command.bookingId),
+        ...slotStarts.map((slot) => this.env.DB.prepare(
+          `INSERT INTO slot_claims (studio_id,resource_id,slot_start_utc,booking_id,created_at)
+           VALUES (?1,?2,?3,?4,?5)`,
+        ).bind(command.studioId, command.resourceId, slot, command.bookingId, command.now)),
+        this.env.DB.prepare(
+          `UPDATE waitlist_entries SET status='converted',updated_at=?1
+           WHERE studio_id=?2 AND user_id=?3 AND service_id=?4 AND resource_id=?5
+             AND day_start_utc<=?6 AND day_end_utc>?6 AND status IN ('active','notified')`,
+        ).bind(command.now, command.studioId, booking.artist_user_id, booking.service_id, command.resourceId, command.startAtUtc),
+        this.env.DB.prepare(
+          `INSERT INTO notifications (id,studio_id,user_id,type,title,body,entity_type,entity_id,created_at)
+           SELECT lower(hex(randomblob(16))),w.studio_id,w.user_id,'waitlist_slot_available','Oslobodio se termin',
+             'Oslobodio se termin za ' || w.service_name_snapshot || ' na datum ' || w.desired_date || '. Rezervirajte ga dok je dostupan.',
+             'waitlist_entry',w.id,?1
+           FROM waitlist_entries w
+           WHERE w.studio_id=?2 AND w.resource_id=?3 AND w.service_id=?4
+             AND w.day_start_utc<=?5 AND w.day_end_utc>?5 AND w.day_end_utc>?1 AND w.status='active'`,
+        ).bind(command.now, command.studioId, command.resourceId, booking.service_id, booking.start_at_utc),
+        this.env.DB.prepare(
+          `UPDATE waitlist_entries SET status='notified',notification_count=notification_count+1,last_notified_at=?1,updated_at=?1
+           WHERE studio_id=?2 AND resource_id=?3 AND service_id=?4
+             AND day_start_utc<=?5 AND day_end_utc>?5 AND day_end_utc>?1 AND status='active'`,
+        ).bind(command.now, command.studioId, command.resourceId, booking.service_id, booking.start_at_utc),
+        this.env.DB.prepare(
+          `INSERT INTO notifications (id,studio_id,user_id,type,title,body,entity_type,entity_id,created_at)
+           VALUES (?1,?2,?3,'booking_rescheduled','Termin je pomaknut',?4,'booking',?5,?6)`,
+        ).bind(crypto.randomUUID(), command.studioId, booking.artist_user_id,
+          `Vaš termin za ${booking.service_name_snapshot} je pomaknut. Novi termin provjerite u svojim rezervacijama.`,
+          booking.id, command.now),
+        this.env.DB.prepare(
+          `INSERT INTO booking_events (id,studio_id,booking_id,actor_user_id,event_type,payload_json,created_at)
+           VALUES (?1,?2,?3,?4,'rescheduled',?5,?6)`,
+        ).bind(crypto.randomUUID(), command.studioId, command.bookingId, command.actorUserId, JSON.stringify(change), command.now),
+        this.env.DB.prepare(
+          `INSERT INTO audit_logs (id,studio_id,actor_user_id,action,entity_type,entity_id,diff_json,request_id,created_at)
+           VALUES (?1,?2,?3,'booking.rescheduled','booking',?4,?5,?6,?7)`,
+        ).bind(crypto.randomUUID(), command.studioId, command.actorUserId, command.bookingId,
+          JSON.stringify(change), command.requestId, command.now),
+      ]);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes('UNIQUE constraint failed') || message.includes('SQLITE_CONSTRAINT')) return { kind: 'conflict' };
+      throw error;
+    }
+    return { kind: 'rescheduled', booking: { ...booking, start_at_utc: command.startAtUtc, end_at_utc: command.endAtUtc } };
   }
 
   async createBlock(command: CreateBlockCommand): Promise<CreateBlockResult> {

@@ -206,13 +206,15 @@ export const managedBookingCreateSchema = bookingCreateSchema.extend({ artistUse
 export type ManagedBookingCreate = z.infer<typeof managedBookingCreateSchema>;
 export const bookingStatusUpdateSchema = z.object({ status: z.enum(['completed', 'no_show']) });
 export type BookingStatusUpdate = z.infer<typeof bookingStatusUpdateSchema>;
+export const bookingRescheduleSchema = z.object({ startAtUtc: z.iso.datetime({ offset: true }) });
+export type BookingReschedule = z.infer<typeof bookingRescheduleSchema>;
 export const bookingNoteCreateSchema = z.object({ body: z.string().trim().min(1, 'Unesite bilješku.').max(1000) });
 export type BookingNoteCreate = z.infer<typeof bookingNoteCreateSchema>;
 export const bookingTimelineEntrySchema = z.discriminatedUnion('kind', [
   z.object({
     id: z.string().min(1),
     kind: z.literal('event'),
-    eventType: z.enum(['created', 'cancelled', 'completed', 'no_show']),
+    eventType: z.enum(['created', 'cancelled', 'completed', 'no_show', 'rescheduled']),
     actorName: z.string().nullable(),
     createdAt: z.iso.datetime({ offset: true }),
   }),
@@ -530,7 +532,7 @@ export type WaitlistCreate = z.infer<typeof waitlistCreateSchema>;
 
 export const notificationSchema = z.object({
   id: z.string().min(1),
-  type: z.enum(['waitlist_slot_available', 'booking_created', 'booking_cancelled', 'system']),
+  type: z.enum(['waitlist_slot_available', 'booking_created', 'booking_cancelled', 'booking_rescheduled', 'system']),
   title: z.string().min(1).max(150),
   body: z.string().min(1).max(1000),
   entityType: z.string().nullable(),
