@@ -174,6 +174,7 @@ export const publicStudioSchema = z.object({
 export type PublicStudio = z.infer<typeof publicStudioSchema>;
 
 export const bookingStatusSchema = z.enum(['confirmed', 'cancelled', 'completed', 'no_show']);
+export type BookingStatus = z.infer<typeof bookingStatusSchema>;
 export const bookingSchema = z.object({
   id: z.string().min(1),
   studioId: z.string().min(1),
@@ -195,6 +196,18 @@ export const bookingSchema = z.object({
   createdAt: z.iso.datetime({ offset: true }),
 });
 export type Booking = z.infer<typeof bookingSchema>;
+export const bookingListResponseSchema = z.object({
+  bookings: z.array(bookingSchema),
+  nextCursor: z.string().min(1).nullable(),
+});
+export type BookingListResponse = z.infer<typeof bookingListResponseSchema>;
+export type BookingListFilters = {
+  search?: string;
+  status?: z.infer<typeof bookingStatusSchema>;
+  fromDate?: string;
+  toDate?: string;
+  cursor?: string;
+};
 
 export const bookingCreateSchema = z.object({
   serviceId: z.string().min(1),

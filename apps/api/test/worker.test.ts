@@ -1,4 +1,4 @@
-import { artistValueAccountSchema, blockedSlotSchema, bookingAvailabilitySchema, bookingDetailSchema, bookingSchema, healthResponseSchema, hourPackageSchema, managerInvitationCreatedSchema, notificationSchema, platformStudioCreatedSchema, portfolioProjectSchema, promoCodeSchema, promoQuoteSchema, serviceSchema, studioAccessSchema, studioAnalyticsSchema, studioOverviewSchema, teamMemberSchema, waitlistEntrySchema } from '@studio/contracts';
+import { artistValueAccountSchema, blockedSlotSchema, bookingAvailabilitySchema, bookingDetailSchema, bookingListResponseSchema, bookingSchema, healthResponseSchema, hourPackageSchema, managerInvitationCreatedSchema, notificationSchema, platformStudioCreatedSchema, portfolioProjectSchema, promoCodeSchema, promoQuoteSchema, serviceSchema, studioAccessSchema, studioAnalyticsSchema, studioOverviewSchema, teamMemberSchema, waitlistEntrySchema } from '@studio/contracts';
 import { env, exports } from 'cloudflare:workers';
 import { beforeAll, describe, expect, it } from 'vitest';
 import identityMigration from '../../../db/migrations/0001_identity_and_tenancy.sql?raw';
@@ -12,9 +12,10 @@ import promoMigration from '../../../db/migrations/0008_promo_codes.sql?raw';
 import waitlistMigration from '../../../db/migrations/0009_waitlist_notifications.sql?raw';
 import bookingNotesMigration from '../../../db/migrations/0010_booking_notes.sql?raw';
 import bookingRescheduleMigration from '../../../db/migrations/0011_booking_rescheduled_events.sql?raw';
+import bookingListIndexesMigration from '../../../db/migrations/0012_booking_list_indexes.sql?raw';
 
 beforeAll(async () => {
-  const sql = `${identityMigration}\n${catalogMigration}\n${bookingMigration}\n${platformMigration}\n${contentMigration}\n${accessMigration}\n${valueMigration}\n${promoMigration}\n${waitlistMigration}\n${bookingNotesMigration}\n${bookingRescheduleMigration}`;
+  const sql = `${identityMigration}\n${catalogMigration}\n${bookingMigration}\n${platformMigration}\n${contentMigration}\n${accessMigration}\n${valueMigration}\n${promoMigration}\n${waitlistMigration}\n${bookingNotesMigration}\n${bookingRescheduleMigration}\n${bookingListIndexesMigration}`;
   const triggers = sql.match(/CREATE TRIGGER[\s\S]*?END;/g) ?? [];
   const statements = sql.replace(/CREATE TRIGGER[\s\S]*?END;/g, '')
     .split(';').map((statement) => statement.trim()).filter(Boolean).map((statement) => env.DB.prepare(statement));
@@ -664,6 +665,45 @@ describe('Studio Cener API foundation', () => {
       'SELECT COUNT(*) AS count FROM audit_logs WHERE studio_id = ?1',
     ).bind('studio_a').first<{ count: number }>();
     expect(auditCount?.count).toBe(28);
+
+    const filteredBookingsResponse = await exports.default.fetch(new Request(
+      'https://api.example.test/api/studios/studio-a/bookings?status=completed&search=Studio%20Artist',
+      { headers: { Cookie: cookie ?? '' } },
+    ));
+    expect(filteredBookingsResponse.status).toBe(200);
+    expect(bookingListResponseSchema.parse(await filteredBookingsResponse.json()).bookings.map((item) => item.id))
+      .toContain(managedBooking.id);
+    const invalidCursorResponse = await exports.default.fetch(new Request(
+      'https://api.example.test/api/studios/studio-a/bookings?cursor=not-a-cursor',
+      { headers: { Cookie: cookie ?? '' } },
+    ));
+    expect(invalidCursorResponse.status).toBe(422);
+
+    const fixtureNow = Date.now();
+    await env.DB.batch(Array.from({ length: 26 }, (_, index) => env.DB.prepare(
+      `INSERT INTO bookings
+       (id,studio_id,resource_id,artist_user_id,service_id,start_at_utc,end_at_utc,status,
+        service_name_snapshot,duration_minutes_snapshot,price_minor_snapshot,subtotal_price_minor_snapshot,
+        discount_minor_snapshot,promo_code_id,promo_code_snapshot,currency_snapshot,idempotency_key,request_fingerprint,
+        version,created_at,updated_at)
+       VALUES (?1,'studio_a',?2,?3,?4,?5,?6,'completed',?7,?8,?9,?10,?11,NULL,NULL,?12,?13,?14,1,?15,?15)`,
+    ).bind(`pagination_booking_${index}`, managedBooking.resourceId, managedBooking.artistUserId, managedBooking.serviceId,
+      fixtureNow - (index + 10) * 86_400_000, fixtureNow - (index + 10) * 86_400_000 + managedBooking.durationMinutes * 60_000,
+      managedBooking.serviceName, managedBooking.durationMinutes, managedBooking.priceMinor, managedBooking.subtotalPriceMinor,
+      managedBooking.discountMinor, managedBooking.currency, `pagination-key-${index}`, `pagination-fingerprint-${index}`, fixtureNow)));
+    const firstPageResponse = await exports.default.fetch(new Request(
+      'https://api.example.test/api/studios/studio-a/bookings?status=completed', { headers: { Cookie: cookie ?? '' } },
+    ));
+    const firstPage = bookingListResponseSchema.parse(await firstPageResponse.json());
+    expect(firstPage.bookings).toHaveLength(25);
+    expect(firstPage.nextCursor).toBeTruthy();
+    const secondPageResponse = await exports.default.fetch(new Request(
+      `https://api.example.test/api/studios/studio-a/bookings?status=completed&cursor=${encodeURIComponent(firstPage.nextCursor!)}`,
+      { headers: { Cookie: cookie ?? '' } },
+    ));
+    const secondPage = bookingListResponseSchema.parse(await secondPageResponse.json());
+    expect(secondPage.bookings.length).toBeGreaterThan(0);
+    expect(secondPage.bookings.some((item) => firstPage.bookings.some((first) => first.id === item.id))).toBe(false);
 
     const createManagedStudioResponse = await exports.default.fetch(new Request(
       'https://api.example.test/api/platform/studios',

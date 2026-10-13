@@ -1,4 +1,4 @@
-import type { BlockedSlot, BlockedSlotCreate, Booking, BookingAvailability, BookingCreate } from '@studio/contracts';
+import type { BlockedSlot, BlockedSlotCreate, Booking, BookingAvailability, BookingCreate, BookingListFilters, BookingListResponse } from '@studio/contracts';
 
 let bookings: Booking[] = [];
 let blockedSlots: BlockedSlot[] = [];
@@ -54,9 +54,13 @@ export async function mockCreateBooking(input: BookingCreate): Promise<Booking> 
   return structuredClone(booking);
 }
 
-export async function mockBookings(signal?: AbortSignal) {
+export async function mockBookings(filters: BookingListFilters = {}, signal?: AbortSignal): Promise<BookingListResponse> {
   await wait(signal);
-  return { bookings: structuredClone(bookings) };
+  const filtered = bookings.filter((booking) => (!filters.status || booking.status === filters.status)
+    && (!filters.search || booking.serviceName.toLocaleLowerCase('hr').includes(filters.search.toLocaleLowerCase('hr')))
+    && (!filters.fromDate || booking.startAtUtc.slice(0, 10) >= filters.fromDate)
+    && (!filters.toDate || booking.startAtUtc.slice(0, 10) <= filters.toDate));
+  return { bookings: structuredClone(filtered.slice(0, 25)), nextCursor: null };
 }
 
 export async function mockCancelBooking(id: string): Promise<Booking> {

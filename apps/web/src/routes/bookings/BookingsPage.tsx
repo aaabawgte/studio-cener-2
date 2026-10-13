@@ -1,6 +1,6 @@
-import type { Booking } from '@studio/contracts';
-import { Alert, Badge, Button, Card, ConfirmDialog, EmptyState, LoadingState, PageHeader, buttonStyles, useToast } from '@studio/ui';
-import { useMemo, useState } from 'react';
+import type { Booking, BookingListFilters, BookingStatus } from '@studio/contracts';
+import { Alert, Badge, Button, Card, ConfirmDialog, EmptyState, Field, Input, LoadingState, PageHeader, Select, buttonStyles, useToast } from '@studio/ui';
+import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useOutletContext } from 'react-router';
 import { cancelBooking, fetchBookings, updateBookingStatus } from '../../features/bookings/booking-api';
 import type { StudioViewerContext } from '../../features/studio/types';
@@ -9,12 +9,21 @@ import { usePageTitle } from '../../lib/usePageTitle';
 
 const statusLabel = { confirmed: 'Potvrđen', cancelled: 'Otkazan', completed: 'Završen', no_show: 'Nije došao' } as const;
 type StatusChange = { booking: Booking; status: 'completed' | 'no_show' };
+type Filters = Omit<BookingListFilters, 'cursor'>;
 
 export function BookingsPage() {
   usePageTitle('Rezervacije');
   const ctx = useOutletContext<StudioViewerContext>();
   const toast = useToast();
-  const result = useAsync((signal) => fetchBookings(ctx.studio.slug, signal), [ctx.studio.slug]);
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState<'' | BookingStatus>('');
+  const [fromDate, setFromDate] = useState('');
+  const [toDate, setToDate] = useState('');
+  const [filters, setFilters] = useState<Filters>({});
+  const result = useAsync((signal) => fetchBookings(ctx.studio.slug, filters, signal), [ctx.studio.slug, filters]);
+  const [additionalBookings, setAdditionalBookings] = useState<Booking[]>([]);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [cancelling, setCancelling] = useState<string | null>(null);
   const [statusChange, setStatusChange] = useState<StatusChange | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
@@ -23,6 +32,40 @@ export function BookingsPage() {
     dateStyle: 'medium',
     timeStyle: 'short',
   }), [ctx.studio.timezone]);
+  const bookings = [...(result.data?.bookings ?? []), ...additionalBookings];
+
+  useEffect(() => {
+    setAdditionalBookings([]);
+    setNextCursor(result.data?.nextCursor ?? null);
+  }, [result.data]);
+
+  function applyFilters(event: FormEvent) {
+    event.preventDefault();
+    setFilters({
+      ...(search.trim() ? { search: search.trim() } : {}),
+      ...(status ? { status } : {}),
+      ...(fromDate ? { fromDate } : {}),
+      ...(toDate ? { toDate } : {}),
+    });
+  }
+
+  function resetFilters() {
+    setSearch(''); setStatus(''); setFromDate(''); setToDate(''); setFilters({});
+  }
+
+  async function loadMore() {
+    if (!nextCursor) return;
+    setLoadingMore(true);
+    try {
+      const page = await fetchBookings(ctx.studio.slug, { ...filters, cursor: nextCursor });
+      setAdditionalBookings((current) => [...current, ...page.bookings]);
+      setNextCursor(page.nextCursor);
+    } catch (caught: unknown) {
+      toast.error('Dodatne rezervacije nije moguće učitati', caught instanceof Error ? caught.message : undefined);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   async function cancel(booking: Booking) {
     setCancelling(booking.id);
@@ -55,11 +98,20 @@ export function BookingsPage() {
   return (
     <>
       <PageHeader title={ctx.membership.role === 'artist' ? 'Moji termini' : 'Rezervacije'} description="Potvrđeni, završeni i otkazani termini studija." actions={ctx.membership.role !== 'artist' ? <Link className={buttonStyles()} to={`/app/${ctx.studio.slug}/termini/nova`}>Nova rezervacija</Link> : undefined} />
-      {result.status === 'loading' ? <LoadingState variant="rows" rows={4} /> : null}
+      <Card className="mb-5">
+        <form className="grid gap-4 md:grid-cols-2 xl:grid-cols-[minmax(12rem,1fr)_11rem_10rem_10rem_auto] xl:items-end" onSubmit={applyFilters}>
+          <Field label={ctx.membership.role === 'artist' ? 'Pretraži uslugu' : 'Artist ili usluga'}><Input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={ctx.membership.role === 'artist' ? 'Snimanje, mix…' : 'Ime, e-mail, usluga…'} maxLength={100} /></Field>
+          <Field label="Status"><Select value={status} onChange={(event) => setStatus(event.target.value as '' | BookingStatus)}><option value="">Svi statusi</option><option value="confirmed">Potvrđeni</option><option value="completed">Završeni</option><option value="cancelled">Otkazani</option><option value="no_show">Nije došao</option></Select></Field>
+          <Field label="Od datuma"><Input type="date" value={fromDate} max={toDate || undefined} onChange={(event) => setFromDate(event.target.value)} /></Field>
+          <Field label="Do datuma"><Input type="date" value={toDate} min={fromDate || undefined} onChange={(event) => setToDate(event.target.value)} /></Field>
+          <div className="flex gap-2"><Button type="submit">Filtriraj</Button><Button variant="ghost" onClick={resetFilters}>Očisti</Button></div>
+        </form>
+      </Card>
+      {result.status === 'loading' && !result.data ? <LoadingState variant="rows" rows={4} /> : null}
       {result.status === 'error' ? <Alert tone="danger">Rezervacije trenutno nije moguće učitati.</Alert> : null}
-      {result.data?.bookings.length === 0 ? <Card padded={false}><EmptyState size="compact" icon="bookings" title="Još nema rezervacija" /></Card> : null}
+      {result.status === 'success' && bookings.length === 0 ? <Card padded={false}><EmptyState size="compact" icon="bookings" title="Nema rezervacija za odabrane filtre" /></Card> : null}
       <div className="space-y-3">
-        {result.data?.bookings.map((booking) => {
+        {bookings.map((booking) => {
           const canManage = ctx.membership.role === 'owner' || ctx.membership.role === 'manager';
           const now = Date.now();
           const hasStarted = new Date(booking.startAtUtc).getTime() <= now;
@@ -82,6 +134,7 @@ export function BookingsPage() {
           );
         })}
       </div>
+      {nextCursor ? <div className="mt-6 flex justify-center"><Button variant="secondary" loading={loadingMore} onClick={() => void loadMore()}>Učitaj još</Button></div> : null}
       <ConfirmDialog
         open={statusChange !== null}
         onClose={() => setStatusChange(null)}

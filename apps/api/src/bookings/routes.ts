@@ -4,9 +4,11 @@ import {
   bookingAvailabilitySchema,
   bookingCreateSchema,
   bookingDetailSchema,
+  bookingListResponseSchema,
   bookingNoteCreateSchema,
   bookingRescheduleSchema,
   bookingStatusUpdateSchema,
+  bookingStatusSchema,
   bookingTimelineEntrySchema,
   managedBookingCreateSchema,
   bookingSchema,
@@ -304,18 +306,69 @@ export async function listBookings(context: ApiContext) {
   const access = await resolveStudioAccess(context.env, context.req.raw, param(context, 'slug'));
   if (!access.ok) return context.json(access.error.body, access.error.status);
   const canViewAll = permissionsForRole(access.value.actor.role).includes('bookings.view');
+  const status = context.req.query('status')?.trim() || undefined;
+  if (status && !bookingStatusSchema.safeParse(status).success) {
+    return context.json<ApiErrorBody>({ code: 'VALIDATION_ERROR', message: 'Status rezervacije nije valjan.' }, 422);
+  }
+  const search = context.req.query('search')?.trim().slice(0, 100) || undefined;
+  const fromDate = context.req.query('fromDate')?.trim() || undefined;
+  const toDate = context.req.query('toDate')?.trim() || undefined;
+  let from: number | undefined;
+  let to: number | undefined;
+  try {
+    if (fromDate) from = localDateBounds(fromDate, access.value.studio.timezone).start;
+    if (toDate) to = localDateBounds(toDate, access.value.studio.timezone).end;
+  } catch {
+    return context.json<ApiErrorBody>({ code: 'VALIDATION_ERROR', message: 'Raspon datuma nije valjan.' }, 422);
+  }
+  if (from !== undefined && to !== undefined && from >= to) {
+    return context.json<ApiErrorBody>({ code: 'VALIDATION_ERROR', message: 'Početni datum mora biti prije završnog.' }, 422);
+  }
+  let cursor: { start: number; id: string } | undefined;
+  const rawCursor = context.req.query('cursor');
+  if (rawCursor) {
+    try {
+      const decoded = JSON.parse(atob(rawCursor)) as { start?: unknown; id?: unknown };
+      if (!Number.isSafeInteger(decoded.start) || typeof decoded.id !== 'string' || !decoded.id) throw new Error('invalid cursor');
+      cursor = { start: Number(decoded.start), id: decoded.id };
+    } catch {
+      return context.json<ApiErrorBody>({ code: 'INVALID_CURSOR', message: 'Stranica rezervacija više nije dostupna.' }, 422);
+    }
+  }
+  const conditions = ['b.studio_id = ?'];
+  const values: (string | number | null)[] = [access.value.studio.id];
+  if (!canViewAll) { conditions.push('b.artist_user_id = ?'); values.push(access.value.actor.userId); }
+  if (status) { conditions.push('b.status = ?'); values.push(status); }
+  if (search) {
+    const escaped = search.replace(/[\\%_]/g, '\\$&');
+    conditions.push(canViewAll
+      ? `(b.service_name_snapshot LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\')`
+      : `b.service_name_snapshot LIKE ? ESCAPE '\\'`);
+    const pattern = `%${escaped}%`;
+    values.push(pattern);
+    if (canViewAll) values.push(pattern, pattern);
+  }
+  if (from !== undefined) { conditions.push('b.start_at_utc >= ?'); values.push(from); }
+  if (to !== undefined) { conditions.push('b.start_at_utc < ?'); values.push(to); }
+  if (cursor) {
+    conditions.push('(b.start_at_utc < ? OR (b.start_at_utc = ? AND b.id < ?))');
+    values.push(cursor.start, cursor.start, cursor.id);
+  }
   const sql = `SELECT b.id,b.studio_id,b.resource_id,b.artist_user_id,b.service_id,b.start_at_utc,b.end_at_utc,b.status,
     b.service_name_snapshot,b.duration_minutes_snapshot,b.price_minor_snapshot,b.subtotal_price_minor_snapshot,
     b.discount_minor_snapshot,b.promo_code_id,b.promo_code_snapshot,b.currency_snapshot,b.request_fingerprint,b.created_at,
     u.name AS artist_name,u.email AS artist_email
     FROM bookings b JOIN user u ON u.id=b.artist_user_id
-    WHERE b.studio_id = ?1 ${canViewAll ? '' : 'AND b.artist_user_id = ?2'}
-    ORDER BY b.start_at_utc DESC LIMIT 200`;
-  const statement = context.env.DB.prepare(sql);
-  const result = canViewAll
-    ? await statement.bind(access.value.studio.id).all<StoredBooking>()
-    : await statement.bind(access.value.studio.id, access.value.actor.userId).all<StoredBooking>();
-  return context.json({ bookings: result.results.map(toBooking) });
+    WHERE ${conditions.join(' AND ')}
+    ORDER BY b.start_at_utc DESC,b.id DESC LIMIT 26`;
+  const result = await context.env.DB.prepare(sql).bind(...values).all<StoredBooking & { artist_name?: string; artist_email?: string }>();
+  const hasMore = result.results.length > 25;
+  const page = result.results.slice(0, 25);
+  const last = page.at(-1);
+  return context.json(bookingListResponseSchema.parse({
+    bookings: page.map(toBooking),
+    nextCursor: hasMore && last ? btoa(JSON.stringify({ start: last.start_at_utc, id: last.id })) : null,
+  }));
 }
 
 export async function listBookingArtists(context: ApiContext) {
