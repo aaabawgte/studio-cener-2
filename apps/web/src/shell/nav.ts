@@ -41,7 +41,10 @@ export const ownerNav: NavSection[] = [
   {
     id: 'account',
     label: 'Postavke',
-    items: [{ id: 'settings', label: 'Postavke studija', icon: 'settings', path: 'postavke', requires: 'studio.settings.manage' }],
+    items: [
+      { id: 'settings', label: 'Postavke studija', icon: 'settings', path: 'postavke', requires: 'studio.settings.manage' },
+      { id: 'access', label: 'Pristupi', icon: 'user', path: 'pristupi', requires: 'studio.settings.manage' },
+    ],
   },
 ];
 

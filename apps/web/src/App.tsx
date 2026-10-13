@@ -19,6 +19,7 @@ import { InvitationPage } from './routes/platform/InvitationPage';
 import { SettingsPage } from './routes/owner/SettingsPage';
 import { TeamPage } from './routes/owner/TeamPage';
 import { PortfolioPage } from './routes/owner/PortfolioPage';
+import { AccessPage } from './routes/owner/AccessPage';
 
 // Dev-only katalog komponenti; ne ulazi u produkcijski bundle.
 const UiKit = import.meta.env.DEV ? lazy(() => import('./routes/dev/UiKit')) : null;
@@ -58,6 +59,7 @@ export function App() {
             <Route path="tim" element={<TeamPage />} />
             <Route path="portfolio" element={<PortfolioPage />} />
             <Route path="postavke" element={<SettingsPage />} />
+            <Route path="pristupi" element={<AccessPage />} />
             <Route path="*" element={<NotFound inline />} />
           </Route>
 

@@ -24,6 +24,7 @@ import {
   updateService,
 } from './studios/catalog';
 import { getStudioViewerContext } from './studios/viewer-context';
+import { createManagerInvitation, listStudioAccess, revokeManagerAccess, revokeManagerInvitation } from './studios/access';
 import {
   createPortfolioProject,
   createTeamMember,
@@ -90,6 +91,10 @@ app.get('/api/public/studios/:slug/portfolio-projects/:projectId/image', getPubl
 app.get('/api/studios/:slug/settings', getStudioSettings);
 app.put('/api/studios/:slug/settings', updateStudioSettings);
 app.post('/api/studios/:slug/logo', (context) => uploadStudioImage(context, 'logo'));
+app.get('/api/studios/:slug/access', listStudioAccess);
+app.post('/api/studios/:slug/manager-invitations', createManagerInvitation);
+app.delete('/api/studios/:slug/manager-invitations/:invitationId', revokeManagerInvitation);
+app.delete('/api/studios/:slug/memberships/:membershipId', revokeManagerAccess);
 app.get('/api/studios/:slug/team-members', listTeamMembers);
 app.post('/api/studios/:slug/team-members', createTeamMember);
 app.put('/api/studios/:slug/team-members/:memberId', updateTeamMember);

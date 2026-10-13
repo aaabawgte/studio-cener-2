@@ -1,4 +1,4 @@
-import { blockedSlotSchema, bookingAvailabilitySchema, bookingSchema, healthResponseSchema, platformStudioCreatedSchema, portfolioProjectSchema, serviceSchema, teamMemberSchema } from '@studio/contracts';
+import { blockedSlotSchema, bookingAvailabilitySchema, bookingSchema, healthResponseSchema, managerInvitationCreatedSchema, platformStudioCreatedSchema, portfolioProjectSchema, serviceSchema, studioAccessSchema, teamMemberSchema } from '@studio/contracts';
 import { env, exports } from 'cloudflare:workers';
 import { beforeAll, describe, expect, it } from 'vitest';
 import identityMigration from '../../../db/migrations/0001_identity_and_tenancy.sql?raw';
@@ -6,9 +6,10 @@ import catalogMigration from '../../../db/migrations/0002_studio_catalog.sql?raw
 import bookingMigration from '../../../db/migrations/0003_booking_engine.sql?raw';
 import platformMigration from '../../../db/migrations/0004_platform_onboarding.sql?raw';
 import contentMigration from '../../../db/migrations/0005_studio_content.sql?raw';
+import accessMigration from '../../../db/migrations/0006_studio_access_management.sql?raw';
 
 beforeAll(async () => {
-  const statements = `${identityMigration}\n${catalogMigration}\n${bookingMigration}\n${platformMigration}\n${contentMigration}`
+  const statements = `${identityMigration}\n${catalogMigration}\n${bookingMigration}\n${platformMigration}\n${contentMigration}\n${accessMigration}`
     .split(';')
     .map((statement) => statement.trim())
     .filter(Boolean)
@@ -233,6 +234,92 @@ describe('Studio Cener API foundation', () => {
     ));
     expect(crossTenantCatalogResponse.status).toBe(403);
 
+    await env.DB.prepare('UPDATE studio_licenses SET max_managers = 1 WHERE studio_id = ?1').bind('studio_a').run();
+    const managerInviteResponse = await exports.default.fetch(new Request(
+      'https://api.example.test/api/studios/studio-a/manager-invitations',
+      {
+        method: 'POST',
+        headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'manager@example.test', teamMemberId: publicMember.id }),
+      },
+    ));
+    expect(managerInviteResponse.status).toBe(201);
+    const managerInvite = managerInvitationCreatedSchema.parse(await managerInviteResponse.json());
+
+    const managerSignup = await exports.default.fetch(new Request('https://api.example.test/api/auth/sign-up/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'https://api.example.test' },
+      body: JSON.stringify({ name: 'Studio Manager', email: 'manager@example.test', password: 'manager-correct-horse-password' }),
+    }));
+    expect(managerSignup.status).toBe(200);
+    const managerCookie = managerSignup.headers.get('set-cookie')?.split(';', 1)[0];
+    const acceptManager = await exports.default.fetch(new Request('https://api.example.test/api/invitations/accept', {
+      method: 'POST',
+      headers: { Cookie: managerCookie ?? '', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: managerInvite.invitationToken }),
+    }));
+    expect(acceptManager.status).toBe(200);
+    await expect(acceptManager.json()).resolves.toEqual({ studioSlug: 'studio-a', role: 'manager' });
+
+    const managerViewer = await exports.default.fetch(new Request('https://api.example.test/api/studios/studio-a/viewer-context', { headers: { Cookie: managerCookie ?? '' } }));
+    expect(managerViewer.status).toBe(200);
+    await expect(managerViewer.json()).resolves.toMatchObject({ membership: { role: 'manager' } });
+    const managerSettings = await exports.default.fetch(new Request('https://api.example.test/api/studios/studio-a/settings', { headers: { Cookie: managerCookie ?? '' } }));
+    expect(managerSettings.status).toBe(403);
+    const managerTeam = await exports.default.fetch(new Request('https://api.example.test/api/studios/studio-a/team-members', { headers: { Cookie: managerCookie ?? '' } }));
+    expect(managerTeam.status).toBe(200);
+
+    const managerLimitResponse = await exports.default.fetch(new Request(
+      'https://api.example.test/api/studios/studio-a/manager-invitations',
+      {
+        method: 'POST',
+        headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'second-manager@example.test' }),
+      },
+    ));
+    expect(managerLimitResponse.status).toBe(409);
+    await expect(managerLimitResponse.json()).resolves.toMatchObject({ code: 'MANAGER_LIMIT_REACHED' });
+
+    const accessResponse = await exports.default.fetch(new Request('https://api.example.test/api/studios/studio-a/access', { headers: { Cookie: cookie ?? '' } }));
+    expect(accessResponse.status).toBe(200);
+    const studioAccess = studioAccessSchema.parse(await accessResponse.json());
+    const managerMembership = studioAccess.members.find((member) => member.role === 'manager');
+    expect(managerMembership).toMatchObject({ email: 'manager@example.test', teamMemberId: publicMember.id });
+    const revokeManager = await exports.default.fetch(new Request(
+      `https://api.example.test/api/studios/studio-a/memberships/${managerMembership?.membershipId ?? ''}`,
+      { method: 'DELETE', headers: { Cookie: cookie ?? '' } },
+    ));
+    expect(revokeManager.status).toBe(204);
+    const revokedManagerViewer = await exports.default.fetch(new Request('https://api.example.test/api/studios/studio-a/viewer-context', { headers: { Cookie: managerCookie ?? '' } }));
+    expect(revokedManagerViewer.status).toBe(403);
+    const teamLink = await env.DB.prepare('SELECT user_id FROM team_members WHERE id = ?1').bind(publicMember.id).first<{ user_id: string | null }>();
+    expect(teamLink?.user_id).toBeNull();
+
+    const reInviteResponse = await exports.default.fetch(new Request('https://api.example.test/api/studios/studio-a/manager-invitations', {
+      method: 'POST', headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'manager@example.test', teamMemberId: publicMember.id }),
+    }));
+    expect(reInviteResponse.status).toBe(201);
+    const reInvite = managerInvitationCreatedSchema.parse(await reInviteResponse.json());
+    const reAccept = await exports.default.fetch(new Request('https://api.example.test/api/invitations/accept', {
+      method: 'POST', headers: { Cookie: managerCookie ?? '', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: reInvite.invitationToken }),
+    }));
+    expect(reAccept.status).toBe(200);
+
+    await env.DB.prepare('UPDATE studio_licenses SET max_managers = 2 WHERE studio_id = ?1').bind('studio_a').run();
+    const pendingInviteResponse = await exports.default.fetch(new Request('https://api.example.test/api/studios/studio-a/manager-invitations', {
+      method: 'POST', headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'pending-manager@example.test' }),
+    }));
+    expect(pendingInviteResponse.status).toBe(201);
+    const pendingInvite = managerInvitationCreatedSchema.parse(await pendingInviteResponse.json());
+    const revokeInviteResponse = await exports.default.fetch(new Request(
+      `https://api.example.test/api/studios/studio-a/manager-invitations/${pendingInvite.invitation.id}`,
+      { method: 'DELETE', headers: { Cookie: cookie ?? '' } },
+    ));
+    expect(revokeInviteResponse.status).toBe(204);
+
     const artistSignupResponse = await exports.default.fetch(new Request('https://api.example.test/api/auth/sign-up/email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Origin: 'https://api.example.test' },
@@ -359,7 +446,7 @@ describe('Studio Cener API foundation', () => {
     const auditCount = await env.DB.prepare(
       'SELECT COUNT(*) AS count FROM audit_logs WHERE studio_id = ?1',
     ).bind('studio_a').first<{ count: number }>();
-    expect(auditCount?.count).toBe(14);
+    expect(auditCount?.count).toBe(21);
 
     const createManagedStudioResponse = await exports.default.fetch(new Request(
       'https://api.example.test/api/platform/studios',

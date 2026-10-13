@@ -42,12 +42,12 @@ function mapStudio(row: AdminStudioRow) {
   });
 }
 
-async function hashToken(token: string) {
+export async function hashInvitationToken(token: string) {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-function randomToken() {
+export function randomInvitationToken() {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
   return btoa(String.fromCharCode(...bytes)).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 }
@@ -109,8 +109,8 @@ export async function createPlatformStudio(context: ApiContext) {
 
   const studioId = crypto.randomUUID();
   const invitationId = crypto.randomUUID();
-  const invitationToken = randomToken();
-  const tokenHash = await hashToken(invitationToken);
+  const invitationToken = randomInvitationToken();
+  const tokenHash = await hashInvitationToken(invitationToken);
   const now = Date.now();
   const invitationExpiresAt = now + 14 * 86_400_000;
   const resourceId = `main:${studioId}`;
@@ -198,14 +198,14 @@ export async function acceptStudioInvitation(context: ApiContext) {
   try { body = await context.req.json(); } catch { body = undefined; }
   const parsed = invitationAcceptSchema.safeParse(body);
   if (!parsed.success) return context.json<ApiErrorBody>({ code: 'INVALID_INVITATION', message: 'Pozivnica nije valjana.' }, 422);
-  const tokenHash = await hashToken(parsed.data.token);
+  const tokenHash = await hashInvitationToken(parsed.data.token);
   const invitation = await context.env.DB.prepare(
-    `SELECT i.id, i.studio_id, i.email, i.role, i.status, i.expires_at, i.accepted_by_user_id, s.slug
+    `SELECT i.id, i.studio_id, i.email, i.role, i.status, i.expires_at, i.accepted_by_user_id, i.team_member_id, s.slug
      FROM studio_invitations i JOIN studios s ON s.id = i.studio_id
      WHERE i.token_hash = ?1 AND s.status = 'active' LIMIT 1`,
   ).bind(tokenHash).first<{
     id: string; studio_id: string; email: string; role: 'owner' | 'manager'; status: string;
-    expires_at: number; accepted_by_user_id: string | null; slug: string;
+    expires_at: number; accepted_by_user_id: string | null; team_member_id: string | null; slug: string;
   }>();
   if (!invitation) return context.json<ApiErrorBody>({ code: 'INVITATION_NOT_FOUND', message: 'Pozivnica nije pronađena.' }, 404);
   if (invitation.email.toLowerCase() !== session.user.email.toLowerCase()) {
@@ -218,10 +218,11 @@ export async function acceptStudioInvitation(context: ApiContext) {
     return context.json<ApiErrorBody>({ code: 'INVITATION_EXPIRED', message: 'Pozivnica više nije aktivna.' }, 410);
   }
   const now = Date.now();
-  await context.env.DB.batch([
+  const statements = [
     context.env.DB.prepare(
       `INSERT INTO memberships (id, studio_id, user_id, role, status, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, 'active', ?5, ?5)`,
+       VALUES (?1, ?2, ?3, ?4, 'active', ?5, ?5)
+       ON CONFLICT (studio_id, user_id) DO UPDATE SET role = excluded.role, status = 'active', updated_at = excluded.updated_at`,
     ).bind(crypto.randomUUID(), invitation.studio_id, session.user.id, invitation.role, now),
     context.env.DB.prepare(
       `UPDATE studio_invitations SET status = 'accepted', accepted_by_user_id = ?1, accepted_at = ?2
@@ -231,6 +232,21 @@ export async function acceptStudioInvitation(context: ApiContext) {
       `INSERT INTO audit_logs (id, studio_id, actor_user_id, action, entity_type, entity_id, diff_json, request_id, created_at)
        VALUES (?1, ?2, ?3, 'invitation.accepted', 'studio_invitation', ?4, ?5, ?6, ?7)`,
     ).bind(crypto.randomUUID(), invitation.studio_id, session.user.id, invitation.id, JSON.stringify({ role: invitation.role }), context.get('requestId'), now),
-  ]);
+  ];
+  if (invitation.team_member_id) {
+    statements.splice(2, 0, context.env.DB.prepare(
+      `UPDATE team_members SET user_id = ?1, updated_at = ?2
+       WHERE id = ?3 AND studio_id = ?4 AND user_id IS NULL`,
+    ).bind(session.user.id, now, invitation.team_member_id, invitation.studio_id));
+  }
+  try {
+    await context.env.DB.batch(statements);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('UNIQUE') || message.includes('SQLITE_CONSTRAINT')) {
+      return context.json<ApiErrorBody>({ code: 'MEMBERSHIP_CONFLICT', message: 'Korisnik već ima pristup ovom studiju.' }, 409);
+    }
+    throw error;
+  }
   return context.json(invitationAcceptedSchema.parse({ studioSlug: invitation.slug, role: invitation.role }));
 }

@@ -276,3 +276,45 @@ export type LicenseUpdate = z.infer<typeof licenseUpdateSchema>;
 export const invitationAcceptSchema = z.object({ token: z.string().min(32).max(256) });
 export const invitationAcceptedSchema = z.object({ studioSlug: z.string().min(1), role: z.enum(['owner', 'manager']) });
 export type InvitationAccepted = z.infer<typeof invitationAcceptedSchema>;
+
+export const studioAccessMemberSchema = z.object({
+  membershipId: z.string().min(1),
+  userId: z.string().min(1),
+  name: z.string().min(1),
+  email: z.email(),
+  role: z.enum(['owner', 'manager']),
+  status: z.enum(['active', 'suspended', 'revoked']),
+  teamMemberId: z.string().nullable(),
+  createdAt: z.iso.datetime({ offset: true }),
+});
+export type StudioAccessMember = z.infer<typeof studioAccessMemberSchema>;
+
+export const studioAccessInvitationSchema = z.object({
+  id: z.string().min(1),
+  email: z.email(),
+  role: z.literal('manager'),
+  teamMemberId: z.string().nullable(),
+  expiresAt: z.iso.datetime({ offset: true }),
+  createdAt: z.iso.datetime({ offset: true }),
+});
+export type StudioAccessInvitation = z.infer<typeof studioAccessInvitationSchema>;
+
+export const studioAccessSchema = z.object({
+  members: z.array(studioAccessMemberSchema),
+  invitations: z.array(studioAccessInvitationSchema),
+  managerLimit: z.number().int().min(0),
+  managerSlotsUsed: z.number().int().min(0),
+});
+export type StudioAccess = z.infer<typeof studioAccessSchema>;
+
+export const managerInvitationCreateSchema = z.object({
+  email: z.email('Unesite valjanu e-mail adresu.').transform((value) => value.trim().toLowerCase()),
+  teamMemberId: z.string().min(1).nullable().optional(),
+});
+export type ManagerInvitationCreate = z.input<typeof managerInvitationCreateSchema>;
+
+export const managerInvitationCreatedSchema = z.object({
+  invitation: studioAccessInvitationSchema,
+  invitationToken: z.string().min(32),
+});
+export type ManagerInvitationCreated = z.infer<typeof managerInvitationCreatedSchema>;
