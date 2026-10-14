@@ -1,4 +1,4 @@
-import type { InvitationAccepted, LicenseUpdate, PlatformStudio, PlatformStudioCreate, PlatformStudioCreated } from '@studio/contracts';
+import type { InvitationAccepted, LicenseUpdate, PlatformDomainWrite, PlatformStudio, PlatformStudioCreate, PlatformStudioCreated, PublicDomainResolution } from '@studio/contracts';
 import { apiFetch } from '../../lib/api/client';
 
 export function fetchPlatformStudios(signal?: AbortSignal) {
@@ -15,4 +15,16 @@ export function acceptInvitation(token: string) {
 
 export function updateStudioLicense(studioId: string, input: LicenseUpdate) {
   return apiFetch<PlatformStudio>(`/api/platform/studios/${encodeURIComponent(studioId)}/license`, { method: 'PUT', body: input });
+}
+
+export function setStudioDomain(studioId: string, input: PlatformDomainWrite) {
+  return apiFetch<PlatformStudio>(`/api/platform/studios/${encodeURIComponent(studioId)}/domain`, { method: 'PUT', body: input });
+}
+
+export function verifyStudioDomain(studioId: string) {
+  return apiFetch<PlatformStudio>(`/api/platform/studios/${encodeURIComponent(studioId)}/domain/verify`, { method: 'POST' });
+}
+
+export function resolveCustomDomain(hostname: string, signal?: AbortSignal) {
+  return apiFetch<PublicDomainResolution>(`/api/public/domains/resolve?hostname=${encodeURIComponent(hostname)}`, { signal });
 }

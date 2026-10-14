@@ -22,7 +22,7 @@ import {
 } from './bookings/routes';
 import { BookingCoordinator } from './durable-objects/booking-coordinator';
 import { ValueCoordinator } from './durable-objects/value-coordinator';
-import { acceptStudioInvitation, createPlatformStudio, listPlatformStudios, updateStudioLicense } from './platform/routes';
+import { acceptStudioInvitation, createPlatformStudio, listPlatformStudios, resolvePublicDomain, setStudioDomain, updateStudioLicense, verifyStudioDomain } from './platform/routes';
 import {
   createService,
   getPublicStudio,
@@ -113,6 +113,7 @@ app.get('/api/public/studios/:slug', getPublicStudio);
 app.get('/api/public/studios/:slug/logo', getPublicLogo);
 app.get('/api/public/studios/:slug/team-members/:memberId/image', getPublicTeamImage);
 app.get('/api/public/studios/:slug/portfolio-projects/:projectId/image', getPublicPortfolioImage);
+app.get('/api/public/domains/resolve', resolvePublicDomain);
 app.get('/api/studios/:slug/settings', getStudioSettings);
 app.put('/api/studios/:slug/settings', updateStudioSettings);
 app.post('/api/studios/:slug/logo', (context) => uploadStudioImage(context, 'logo'));
@@ -176,6 +177,8 @@ app.put('/api/studios/:slug/profile', updateProfile);
 app.get('/api/platform/studios', listPlatformStudios);
 app.post('/api/platform/studios', createPlatformStudio);
 app.put('/api/platform/studios/:studioId/license', updateStudioLicense);
+app.put('/api/platform/studios/:studioId/domain', setStudioDomain);
+app.post('/api/platform/studios/:studioId/domain/verify', verifyStudioDomain);
 app.post('/api/invitations/accept', acceptStudioInvitation);
 
 app.notFound((context) => context.json<ApiErrorBody>({ code: 'NOT_FOUND', message: 'Resource not found.' }, 404));

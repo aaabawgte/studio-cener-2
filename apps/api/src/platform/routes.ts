@@ -4,6 +4,8 @@ import {
   licenseUpdateSchema,
   platformStudioCreateSchema,
   platformStudioCreatedSchema,
+  platformDomainWriteSchema,
+  publicDomainResolutionSchema,
   platformStudioSchema,
   type ApiErrorBody,
 } from '@studio/contracts';
@@ -68,7 +70,7 @@ async function requirePlatformAdmin(context: ApiContext) {
   return { ok: false as const, response: context.json<ApiErrorBody>({ code: 'FORBIDDEN', message: 'Platform admin access required.' }, 403) };
 }
 
-const studioListSql = `SELECT s.id, s.slug, s.name, s.status, l.plan, l.status AS license_status, l.expires_at,
+const studioSelectSql = `SELECT s.id, s.slug, s.name, s.status, l.plan, l.status AS license_status, l.expires_at,
   COALESCE(
     (SELECT u.email FROM memberships m JOIN "user" u ON u.id = m.user_id
       WHERE m.studio_id = s.id AND m.role = 'owner' AND m.status = 'active' ORDER BY m.created_at LIMIT 1),
@@ -78,14 +80,111 @@ const studioListSql = `SELECT s.id, s.slug, s.name, s.status, l.plan, l.status A
   d.hostname, d.status AS domain_status, d.ssl_status
   FROM studios s
   JOIN studio_licenses l ON l.studio_id = s.id
-  LEFT JOIN studio_domains d ON d.studio_id = s.id AND d.is_primary = 1
-  ORDER BY s.created_at DESC`;
+  LEFT JOIN studio_domains d ON d.studio_id = s.id AND d.is_primary = 1`;
 
 export async function listPlatformStudios(context: ApiContext) {
   const admin = await requirePlatformAdmin(context);
   if (!admin.ok) return admin.response;
-  const result = await context.env.DB.prepare(studioListSql).all<AdminStudioRow>();
+  const result = await context.env.DB.prepare(`${studioSelectSql} ORDER BY s.created_at DESC`).all<AdminStudioRow>();
   return context.json({ studios: result.results.map(mapStudio) });
+}
+
+async function loadPlatformStudio(context: ApiContext, studioId: string) {
+  const result = await context.env.DB.prepare(`${studioSelectSql} WHERE s.id=?1`)
+    .bind(studioId).all<AdminStudioRow>();
+  return result.results[0] ? mapStudio(result.results[0]) : null;
+}
+
+export async function resolvePublicDomain(context: ApiContext) {
+  const parsed = platformDomainWriteSchema.safeParse({ hostname: context.req.query('hostname')?.toLowerCase() });
+  if (!parsed.success) return context.json<ApiErrorBody>({ code: 'DOMAIN_NOT_FOUND', message: 'Domena nije povezana.' }, 404);
+  const row = await context.env.DB.prepare(
+    `SELECT s.slug FROM studio_domains d JOIN studios s ON s.id=d.studio_id
+     JOIN studio_licenses l ON l.studio_id=d.studio_id
+     WHERE d.hostname=?1 COLLATE NOCASE AND d.status='active' AND d.ssl_status='active'
+       AND d.is_primary=1 AND s.status='active'
+       AND ((l.status IN ('trial','active') AND l.expires_at>?2)
+         OR (l.status='grace' AND COALESCE(l.grace_ends_at,l.expires_at)>?2))
+     LIMIT 1`,
+  ).bind(parsed.data.hostname, Date.now()).first<{ slug: string }>();
+  return row ? context.json(publicDomainResolutionSchema.parse({ studioSlug: row.slug }))
+    : context.json<ApiErrorBody>({ code: 'DOMAIN_NOT_FOUND', message: 'Domena nije povezana.' }, 404);
+}
+
+export async function setStudioDomain(context: ApiContext) {
+  const admin = await requirePlatformAdmin(context);
+  if (!admin.ok) return admin.response;
+  let body: unknown;
+  try { body = await context.req.json(); } catch { body = undefined; }
+  const parsed = platformDomainWriteSchema.safeParse(body);
+  if (!parsed.success) return context.json<ApiErrorBody>({ code: 'VALIDATION_ERROR', message: 'Domena nije valjana.' }, 422);
+  const studioId = context.req.param('studioId') ?? '';
+  const studio = await context.env.DB.prepare('SELECT id FROM studios WHERE id=?1 LIMIT 1').bind(studioId).first();
+  if (!studio) return context.json<ApiErrorBody>({ code: 'STUDIO_NOT_FOUND', message: 'Studio nije pronađen.' }, 404);
+  const existing = await context.env.DB.prepare(
+    'SELECT id,hostname FROM studio_domains WHERE studio_id=?1 AND is_primary=1 LIMIT 1',
+  ).bind(studioId).first<{ id: string; hostname: string }>();
+  const now = Date.now();
+  const domainId = existing?.id ?? crypto.randomUUID();
+  try {
+    await context.env.DB.batch([
+      existing ? context.env.DB.prepare(
+        `UPDATE studio_domains SET hostname=?1,status='pending',ssl_status='pending',cloudflare_hostname_id=NULL,updated_at=?2
+         WHERE studio_id=?3 AND id=?4`,
+      ).bind(parsed.data.hostname, now, studioId, existing.id) : context.env.DB.prepare(
+        `INSERT INTO studio_domains (id,studio_id,hostname,status,ssl_status,is_primary,created_at,updated_at)
+         VALUES (?1,?2,?3,'pending','pending',1,?4,?4)`,
+      ).bind(domainId, studioId, parsed.data.hostname, now),
+      context.env.DB.prepare(
+        `INSERT INTO audit_logs (id,studio_id,actor_user_id,action,entity_type,entity_id,diff_json,request_id,created_at)
+         VALUES (?1,?2,?3,'studio.domain_configured','studio_domain',?4,?5,?6,?7)`,
+      ).bind(crypto.randomUUID(), studioId, admin.userId, domainId,
+        JSON.stringify({ before: existing?.hostname ?? null, after: parsed.data.hostname }), context.get('requestId'), now),
+    ]);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('UNIQUE') || message.includes('SQLITE_CONSTRAINT')) {
+      return context.json<ApiErrorBody>({ code: 'DOMAIN_CONFLICT', message: 'Domena je već povezana s drugim studijem.' }, 409);
+    }
+    throw error;
+  }
+  const updated = await loadPlatformStudio(context, studioId);
+  if (!updated) throw new Error('Updated studio could not be loaded.');
+  return context.json(updated);
+}
+
+export async function verifyStudioDomain(context: ApiContext) {
+  const admin = await requirePlatformAdmin(context);
+  if (!admin.ok) return admin.response;
+  const studioId = context.req.param('studioId') ?? '';
+  const domain = await context.env.DB.prepare(
+    'SELECT id,hostname FROM studio_domains WHERE studio_id=?1 AND is_primary=1 LIMIT 1',
+  ).bind(studioId).first<{ id: string; hostname: string }>();
+  if (!domain) return context.json<ApiErrorBody>({ code: 'DOMAIN_NOT_FOUND', message: 'Domena nije postavljena.' }, 404);
+  let verified = false;
+  try {
+    const response = await fetch(`https://${domain.hostname}/api/health`, { redirect: 'manual', signal: AbortSignal.timeout(10_000) });
+    if (response.ok) {
+      const payload = await response.json<{ service?: string; environment?: string }>();
+      verified = payload.service === 'studio-cener-api' && payload.environment === 'production';
+    }
+  } catch { verified = false; }
+  const now = Date.now();
+  await context.env.DB.batch([
+    context.env.DB.prepare(
+      `UPDATE studio_domains SET status=?1,ssl_status=?1,updated_at=?2 WHERE studio_id=?3 AND id=?4`,
+    ).bind(verified ? 'active' : 'failed', now, studioId, domain.id),
+    context.env.DB.prepare(
+      `INSERT INTO audit_logs (id,studio_id,actor_user_id,action,entity_type,entity_id,diff_json,request_id,created_at)
+       VALUES (?1,?2,?3,?4,'studio_domain',?5,?6,?7,?8)`,
+    ).bind(crypto.randomUUID(), studioId, admin.userId,
+      verified ? 'studio.domain_activated' : 'studio.domain_verification_failed', domain.id,
+      JSON.stringify({ hostname: domain.hostname }), context.get('requestId'), now),
+  ]);
+  if (!verified) return context.json<ApiErrorBody>({ code: 'DOMAIN_NOT_READY', message: 'Domena još ne vodi na Studio Cener Pages projekt ili SSL nije spreman.' }, 409);
+  const updated = await loadPlatformStudio(context, studioId);
+  if (!updated) throw new Error('Verified studio could not be loaded.');
+  return context.json(updated);
 }
 
 export async function createPlatformStudio(context: ApiContext) {
@@ -154,7 +253,7 @@ export async function createPlatformStudio(context: ApiContext) {
     throw error;
   }
 
-  const createdRows = await context.env.DB.prepare(studioListSql).all<AdminStudioRow>();
+  const createdRows = await context.env.DB.prepare(`${studioSelectSql} ORDER BY s.created_at DESC`).all<AdminStudioRow>();
   const row = createdRows.results.find((item) => item.id === studioId);
   if (!row) throw new Error('Created studio could not be loaded.');
   return context.json(platformStudioCreatedSchema.parse({ studio: mapStudio(row), invitationToken }), 201);
@@ -185,10 +284,9 @@ export async function updateStudioLicense(context: ApiContext) {
        VALUES (?1, ?2, ?3, 'license.updated', 'studio_license', ?2, ?4, ?5, ?6)`,
     ).bind(crypto.randomUUID(), studioId, admin.userId, JSON.stringify({ before: current, after: parsed.data }), context.get('requestId'), now),
   ]);
-  const rows = await context.env.DB.prepare(studioListSql).all<AdminStudioRow>();
-  const updated = rows.results.find((row) => row.id === studioId);
+  const updated = await loadPlatformStudio(context, studioId);
   if (!updated) throw new Error('Updated studio could not be loaded.');
-  return context.json(mapStudio(updated));
+  return context.json(updated);
 }
 
 export async function acceptStudioInvitation(context: ApiContext) {

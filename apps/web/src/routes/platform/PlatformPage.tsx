@@ -2,7 +2,7 @@ import type { LicensePlan, PlatformStudio, PlatformStudioCreate } from './types'
 import { Alert, Badge, Button, Card, EmptyState, ErrorState, Field, Input, LoadingState, Select, buttonStyles, useToast } from '@studio/ui';
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router';
-import { createPlatformStudio, fetchPlatformStudios, updateStudioLicense } from '../../features/platform/platform-api';
+import { createPlatformStudio, fetchPlatformStudios, setStudioDomain, updateStudioLicense, verifyStudioDomain } from '../../features/platform/platform-api';
 import { ApiError } from '../../lib/api/client';
 import { useAsync } from '../../lib/useAsync';
 import { usePageTitle } from '../../lib/usePageTitle';
@@ -104,5 +104,67 @@ function StudioList({ studios, onUpdated }: { studios: PlatformStudio[]; onUpdat
     finally { setUpdating(null); }
   }
   if (!studios.length) return <Card padded={false}><EmptyState size="compact" icon="services" title="Još nema studija" /></Card>;
-  return <div className="space-y-3">{studios.map((studio) => <Card key={studio.id}><div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div><div className="flex flex-wrap items-center gap-2"><h2 className="text-xl">{studio.name}</h2><Badge tone={studio.license.status === 'active' ? 'success' : 'warning'}>{studio.license.status}</Badge></div><p className="mt-2 text-sm text-ink-muted">{studio.ownerEmail ?? 'Owner nije dodijeljen'}</p><p className="mt-1 text-sm text-ink-subtle">/{studio.slug} · {studio.license.plan} · do {new Intl.DateTimeFormat('hr-HR').format(new Date(studio.license.expiresAt))}</p>{studio.domain ? <p className="mt-2 text-sm">{studio.domain.hostname} <span className="text-ink-subtle">({studio.domain.status})</span></p> : null}</div><div className="flex flex-wrap gap-2"><Button variant="secondary" size="sm" loading={updating === studio.id} onClick={() => void extend(studio)}>+ 1 godina</Button><Link className={buttonStyles({ variant: 'secondary', size: 'sm' })} to={`/s/${studio.slug}`}>Javna stranica</Link></div></div></Card>)}</div>;
+  return <div className="space-y-3">{studios.map((studio) => (
+    <Card key={studio.id}>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex flex-wrap items-center gap-2"><h2 className="text-xl">{studio.name}</h2><Badge tone={studio.license.status === 'active' ? 'success' : 'warning'}>{studio.license.status}</Badge></div>
+          <p className="mt-2 text-sm text-ink-muted">{studio.ownerEmail ?? 'Owner nije dodijeljen'}</p>
+          <p className="mt-1 text-sm text-ink-subtle">/{studio.slug} · {studio.license.plan} · do {new Intl.DateTimeFormat('hr-HR').format(new Date(studio.license.expiresAt))}</p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="secondary" size="sm" loading={updating === studio.id} onClick={() => void extend(studio)}>+ 1 godina</Button>
+          {studio.domain?.status === 'active'
+            ? <a className={buttonStyles({ variant: 'secondary', size: 'sm' })} href={`https://${studio.domain.hostname}`} target="_blank" rel="noreferrer">Javna stranica</a>
+            : <Link className={buttonStyles({ variant: 'secondary', size: 'sm' })} to={`/s/${studio.slug}`}>Javna stranica</Link>}
+        </div>
+      </div>
+      <DomainControl studio={studio} onUpdated={onUpdated} />
+    </Card>
+  ))}</div>;
+}
+
+const domainStatusLabel = { pending: 'Čeka povezivanje', active: 'Aktivna', failed: 'Provjera nije uspjela' } as const;
+
+function DomainControl({ studio, onUpdated }: { studio: PlatformStudio; onUpdated: () => void }) {
+  const toast = useToast();
+  const [hostname, setHostname] = useState(studio.domain?.hostname ?? '');
+  const [action, setAction] = useState<'save' | 'verify' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setAction('save'); setError(null);
+    try {
+      await setStudioDomain(studio.id, { hostname: hostname.trim().toLowerCase() });
+      toast.success('Domena je spremljena.'); onUpdated();
+    } catch (caught: unknown) { setError(caught instanceof Error ? caught.message : 'Domenu nije moguće spremiti.'); }
+    finally { setAction(null); }
+  }
+
+  async function verify() {
+    setAction('verify'); setError(null);
+    try {
+      await verifyStudioDomain(studio.id);
+      toast.success('Domena je aktivna i spremna.'); onUpdated();
+    } catch (caught: unknown) { setError(caught instanceof Error ? caught.message : 'Domenu nije moguće provjeriti.'); onUpdated(); }
+    finally { setAction(null); }
+  }
+
+  const savedHostname = studio.domain?.hostname ?? '';
+  return (
+    <div className="mt-5 border-t border-line pt-5">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="font-medium">Vlastita domena</h3>
+        {studio.domain ? <Badge tone={studio.domain.status === 'active' ? 'success' : studio.domain.status === 'failed' ? 'warning' : 'neutral'}>{domainStatusLabel[studio.domain.status]}</Badge> : null}
+      </div>
+      <p className="mt-2 text-sm text-ink-subtle">Dodaj domenu u Cloudflare Pages projekt “studio-cener-2”, zatim ovdje pokreni provjeru.</p>
+      {error ? <Alert tone="danger" className="mt-3">{error}</Alert> : null}
+      <div className="mt-4 flex flex-col gap-2 sm:flex-row">
+        <Input aria-label={`Domena za ${studio.name}`} placeholder="booking.studio.hr" value={hostname} onChange={(event) => setHostname(event.target.value.toLowerCase())} />
+        <Button variant="secondary" loading={action === 'save'} disabled={!hostname.trim() || action !== null} onClick={() => void save()}>Spremi</Button>
+        <Button loading={action === 'verify'} disabled={!savedHostname || hostname.trim() !== savedHostname || action !== null} onClick={() => void verify()}>Provjeri</Button>
+      </div>
+      {studio.domain?.status === 'active' ? <p className="mt-3 text-sm text-success">https://{studio.domain.hostname} je spreman za artiste.</p> : null}
+    </div>
+  );
 }

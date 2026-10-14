@@ -326,6 +326,14 @@ export const platformStudioCreatedSchema = z.object({
 });
 export type PlatformStudioCreated = z.infer<typeof platformStudioCreatedSchema>;
 
+export const platformDomainWriteSchema = z.object({
+  hostname: z.string().trim().toLowerCase().max(253)
+    .regex(/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/, 'Domena nije valjana.'),
+});
+export type PlatformDomainWrite = z.infer<typeof platformDomainWriteSchema>;
+export const publicDomainResolutionSchema = z.object({ studioSlug: z.string().min(1) });
+export type PublicDomainResolution = z.infer<typeof publicDomainResolutionSchema>;
+
 export const licenseUpdateSchema = z.object({
   plan: licensePlanSchema,
   status: licenseStatusSchema,

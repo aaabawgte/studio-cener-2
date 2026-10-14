@@ -1,6 +1,9 @@
-import { Badge, buttonStyles, Card } from '@studio/ui';
+import { Badge, buttonStyles, Card, ErrorState, LoadingState } from '@studio/ui';
 import { Link } from 'react-router';
+import { resolveCustomDomain } from '../features/platform/platform-api';
+import { useAsync } from '../lib/useAsync';
 import { usePageTitle } from '../lib/usePageTitle';
+import { PublicStudioPage } from './public/PublicStudioPage';
 
 const capabilities = [
   { number: '01', title: 'Javni booking', text: 'Brendirana stranica, usluge, cijene i dostupni termini u vremenskoj zoni studija.' },
@@ -9,6 +12,22 @@ const capabilities = [
 ] as const;
 
 export function Home() {
+  const hostname = window.location.hostname.toLowerCase();
+  const isPlatformHostname = hostname === 'localhost' || hostname === '127.0.0.1'
+    || hostname === 'studio-cener-2.pages.dev' || hostname.endsWith('.studio-cener-2.pages.dev');
+  return isPlatformHostname ? <PlatformHome /> : <CustomDomainHome hostname={hostname} />;
+}
+
+function CustomDomainHome({ hostname }: { hostname: string }) {
+  const domain = useAsync((signal) => resolveCustomDomain(hostname, signal), [hostname]);
+  if (domain.status === 'loading') return <main className="grid min-h-dvh place-items-center bg-canvas"><LoadingState label="Otvaranje studija" /></main>;
+  if (domain.status === 'error' || !domain.data) {
+    return <main className="grid min-h-dvh place-items-center bg-canvas px-5"><ErrorState title="Domena još nije povezana" description="Provjeri adresu ili se javi studiju." onRetry={domain.reload} /></main>;
+  }
+  return <PublicStudioPage studioSlug={domain.data.studioSlug} />;
+}
+
+function PlatformHome() {
   usePageTitle();
   return (
     <main className="min-h-dvh bg-canvas">

@@ -1,4 +1,4 @@
-import { artistOverviewSchema, artistValueAccountSchema, blockedSlotSchema, bookingAvailabilitySchema, bookingDetailSchema, bookingListResponseSchema, bookingSchema, healthResponseSchema, hourPackageSchema, managerInvitationCreatedSchema, notificationSchema, platformStudioCreatedSchema, portfolioProjectSchema, promoCodeSchema, promoQuoteSchema, serviceSchema, studioAccessSchema, studioAnalyticsSchema, studioOverviewSchema, teamMemberSchema, viewerSchema, waitlistEntrySchema } from '@studio/contracts';
+import { artistOverviewSchema, artistValueAccountSchema, blockedSlotSchema, bookingAvailabilitySchema, bookingDetailSchema, bookingListResponseSchema, bookingSchema, healthResponseSchema, hourPackageSchema, managerInvitationCreatedSchema, notificationSchema, platformStudioCreatedSchema, portfolioProjectSchema, promoCodeSchema, promoQuoteSchema, publicDomainResolutionSchema, serviceSchema, studioAccessSchema, studioAnalyticsSchema, studioOverviewSchema, teamMemberSchema, viewerSchema, waitlistEntrySchema } from '@studio/contracts';
 import { env, exports } from 'cloudflare:workers';
 import { beforeAll, describe, expect, it } from 'vitest';
 import identityMigration from '../../../db/migrations/0001_identity_and_tenancy.sql?raw';
@@ -792,6 +792,37 @@ describe('Studio Cener API foundation', () => {
     const managedStudio = platformStudioCreatedSchema.parse(await createManagedStudioResponse.json());
     expect(managedStudio.studio).toMatchObject({ slug: 'managed-studio', ownerEmail: 'managed-owner@example.test' });
     expect(managedStudio.studio.domain).toMatchObject({ hostname: 'booking.managed-studio.test', status: 'pending' });
+
+    const updateDomainResponse = await exports.default.fetch(new Request(
+      `https://api.example.test/api/platform/studios/${managedStudio.studio.id}/domain`,
+      {
+        method: 'PUT',
+        headers: { Cookie: cookie ?? '', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hostname: 'studio.managed-studio.test' }),
+      },
+    ));
+    expect(updateDomainResponse.status).toBe(200);
+    await expect(updateDomainResponse.json()).resolves.toMatchObject({
+      domain: { hostname: 'studio.managed-studio.test', status: 'pending', sslStatus: 'pending' },
+    });
+    await env.DB.prepare(
+      `UPDATE studio_domains SET status='active',ssl_status='active' WHERE studio_id=?1 AND hostname=?2`,
+    ).bind(managedStudio.studio.id, 'studio.managed-studio.test').run();
+    const resolveDomainResponse = await exports.default.fetch(
+      'https://api.example.test/api/public/domains/resolve?hostname=studio.managed-studio.test',
+    );
+    expect(resolveDomainResponse.status).toBe(200);
+    expect(publicDomainResolutionSchema.parse(await resolveDomainResponse.json())).toEqual({ studioSlug: 'managed-studio' });
+    const customDomainSignup = await exports.default.fetch(new Request('https://studio.managed-studio.test/api/auth/sign-up/email', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Origin: 'https://studio.managed-studio.test' },
+      body: JSON.stringify({ name: 'Custom Domain Artist', email: 'custom-domain-artist@example.test', password: 'custom-domain-correct-password' }),
+    }));
+    expect(customDomainSignup.status).toBe(200);
+    const unknownDomainResponse = await exports.default.fetch(
+      'https://api.example.test/api/public/domains/resolve?hostname=unknown.example.test',
+    );
+    expect(unknownDomainResponse.status).toBe(404);
 
     const renewedExpiry = new Date(Date.now() + 730 * 86_400_000).toISOString();
     const renewLicenseResponse = await exports.default.fetch(new Request(

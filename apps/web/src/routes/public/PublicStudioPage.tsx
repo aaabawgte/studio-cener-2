@@ -12,8 +12,9 @@ function time(minute: number) {
   return `${String(Math.floor(minute / 60)).padStart(2, '0')}:${String(minute % 60).padStart(2, '0')}`;
 }
 
-export function PublicStudioPage() {
-  const { slug = '' } = useParams();
+export function PublicStudioPage({ studioSlug }: { studioSlug?: string } = {}) {
+  const { slug: routeSlug = '' } = useParams();
+  const slug = studioSlug ?? routeSlug;
   const result = useAsync((signal) => fetchPublicStudio(slug, signal), [slug]);
   useStudioAccent(result.data?.studio.branding.accentColor);
   usePageTitle(result.data?.studio.name ?? 'Studio');
