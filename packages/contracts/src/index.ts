@@ -626,3 +626,26 @@ export const studioOverviewSchema = z.object({
   })),
 });
 export type StudioOverview = z.infer<typeof studioOverviewSchema>;
+
+export const artistOverviewSchema = z.object({
+  currency: z.string().regex(/^[A-Z]{3}$/),
+  nextBooking: z.object({
+    id: z.string().min(1),
+    serviceName: z.string().min(1),
+    startAtUtc: z.iso.datetime({ offset: true }),
+    endAtUtc: z.iso.datetime({ offset: true }),
+    durationMinutes: z.number().int().positive(),
+  }).nullable(),
+  creditBalanceMinor: z.number().int().min(0),
+  activePackageCount: z.number().int().min(0),
+  packageMinutesRemaining: z.number().int().min(0),
+  unreadNotifications: z.number().int().min(0),
+  activeWaitlistEntries: z.number().int().min(0),
+  recentNotifications: z.array(notificationSchema).max(3),
+});
+export type ArtistOverview = z.infer<typeof artistOverviewSchema>;
+
+export const profileUpdateSchema = z.object({
+  name: z.string().trim().min(2, 'Unesite ime i prezime.').max(100),
+});
+export type ProfileUpdate = z.infer<typeof profileUpdateSchema>;

@@ -1,4 +1,4 @@
-import { artistValueAccountSchema, blockedSlotSchema, bookingAvailabilitySchema, bookingDetailSchema, bookingListResponseSchema, bookingSchema, healthResponseSchema, hourPackageSchema, managerInvitationCreatedSchema, notificationSchema, platformStudioCreatedSchema, portfolioProjectSchema, promoCodeSchema, promoQuoteSchema, serviceSchema, studioAccessSchema, studioAnalyticsSchema, studioOverviewSchema, teamMemberSchema, waitlistEntrySchema } from '@studio/contracts';
+import { artistOverviewSchema, artistValueAccountSchema, blockedSlotSchema, bookingAvailabilitySchema, bookingDetailSchema, bookingListResponseSchema, bookingSchema, healthResponseSchema, hourPackageSchema, managerInvitationCreatedSchema, notificationSchema, platformStudioCreatedSchema, portfolioProjectSchema, promoCodeSchema, promoQuoteSchema, serviceSchema, studioAccessSchema, studioAnalyticsSchema, studioOverviewSchema, teamMemberSchema, viewerSchema, waitlistEntrySchema } from '@studio/contracts';
 import { env, exports } from 'cloudflare:workers';
 import { beforeAll, describe, expect, it } from 'vitest';
 import identityMigration from '../../../db/migrations/0001_identity_and_tenancy.sql?raw';
@@ -118,6 +118,18 @@ describe('Studio Cener API foundation', () => {
     expect(creditBooking).toMatchObject({ paymentMethod: 'credit', creditAmountMinor: 5000, packageMinutes: 0 });
     const afterCreditUse = await exports.default.fetch(new Request('https://api.example.test/api/studios/value-studio/value/me', { headers: { Cookie: artist.cookie } }));
     expect(artistValueAccountSchema.parse(await afterCreditUse.json()).creditBalanceMinor).toBe(5000);
+    const artistOverviewResponse = await exports.default.fetch(new Request('https://api.example.test/api/studios/value-studio/artist-overview', { headers: { Cookie: artist.cookie } }));
+    expect(artistOverviewResponse.status).toBe(200);
+    expect(artistOverviewSchema.parse(await artistOverviewResponse.json())).toMatchObject({
+      nextBooking: { id: creditBooking.id, serviceName: 'Snimanje' }, creditBalanceMinor: 5000,
+      activePackageCount: 1, packageMinutesRemaining: 150, unreadNotifications: 0, activeWaitlistEntries: 0,
+    });
+    const profileResponse = await exports.default.fetch(new Request('https://api.example.test/api/studios/value-studio/profile', {
+      method: 'PUT', headers: { Cookie: artist.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Novi Artist' }),
+    }));
+    expect(profileResponse.status).toBe(200);
+    expect(viewerSchema.parse(await profileResponse.json()).name).toBe('Novi Artist');
+    expect((await env.DB.prepare(`SELECT name FROM user WHERE id=?1`).bind(artist.userId).first<{ name: string }>())?.name).toBe('Novi Artist');
     const cancelCredit = () => exports.default.fetch(new Request(`https://api.example.test/api/studios/value-studio/bookings/${creditBooking.id}/cancel`, { method: 'POST', headers: { Cookie: artist.cookie } }));
     expect((await cancelCredit()).status).toBe(200);
     expect((await cancelCredit()).status).toBe(200);

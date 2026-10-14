@@ -1,7 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { BrowserRouter, Route, Routes } from 'react-router';
 import { LoadingState, ToastProvider } from '@studio/ui';
-import { artistNav, ownerNav } from './shell/nav';
+import { ownerNav } from './shell/nav';
 import { ArtistLayout } from './routes/artist/ArtistLayout';
 import { Home } from './routes/Home';
 import { ModulePlaceholder } from './routes/ModulePlaceholder';
@@ -30,15 +30,13 @@ import { AnalyticsPage } from './routes/owner/AnalyticsPage';
 import { OverviewPage } from './routes/owner/OverviewPage';
 import { CreateBookingPage } from './routes/owner/CreateBookingPage';
 import { BookingDetailPage } from './routes/owner/BookingDetailPage';
+import { ArtistHomePage } from './routes/artist/ArtistHomePage';
+import { ProfilePage } from './routes/artist/ProfilePage';
 
 // Dev-only katalog komponenti; ne ulazi u produkcijski bundle.
 const UiKit = import.meta.env.DEV ? lazy(() => import('./routes/dev/UiKit')) : null;
 
 const ownerRoutes: { id: string; path: string; description: string }[] = [];
-
-const artistRoutes: { id: string; path: string; description: string }[] = [
-  { id: 'profile', path: 'profil', description: 'Vaši podaci i postavke obavijesti.' },
-];
 
 export function App() {
   return (
@@ -75,10 +73,8 @@ export function App() {
           </Route>
 
           <Route path="/s/:slug/me" element={<ArtistLayout />}>
-            <Route index element={<ModulePlaceholder sections={artistNav} id="home" description="Vaš sljedeći termin, krediti i brza rezervacija." />} />
-            {artistRoutes.map((r) => (
-              <Route key={r.id} path={r.path} element={<ModulePlaceholder sections={artistNav} id={r.id} description={r.description} />} />
-            ))}
+            <Route index element={<ArtistHomePage />} />
+            <Route path="profil" element={<ProfilePage />} />
             <Route path="rezerviraj" element={<BookingPage />} />
             <Route path="termini" element={<BookingsPage />} />
             <Route path="krediti" element={<CreditsPage />} />
