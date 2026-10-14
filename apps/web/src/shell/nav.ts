@@ -13,6 +13,8 @@ export type NavItem = {
   bottomNav?: boolean;
   /** Samo skrivanje u UI-ju — server je jedini autoritet za pristup. */
   requires?: StudioPermission;
+  /** Broj nepročitanih stavki prikazan uz navigaciju. */
+  badge?: number;
 };
 
 export type NavSection = { id: string; label: string; items: NavItem[] };

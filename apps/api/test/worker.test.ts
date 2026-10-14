@@ -14,9 +14,10 @@ import bookingNotesMigration from '../../../db/migrations/0010_booking_notes.sql
 import bookingRescheduleMigration from '../../../db/migrations/0011_booking_rescheduled_events.sql?raw';
 import bookingListIndexesMigration from '../../../db/migrations/0012_booking_list_indexes.sql?raw';
 import bookingValueUsageMigration from '../../../db/migrations/0013_booking_value_usage.sql?raw';
+import bookingNotificationTypesMigration from '../../../db/migrations/0014_booking_notification_types.sql?raw';
 
 beforeAll(async () => {
-  const sql = `${identityMigration}\n${catalogMigration}\n${bookingMigration}\n${platformMigration}\n${contentMigration}\n${accessMigration}\n${valueMigration}\n${promoMigration}\n${waitlistMigration}\n${bookingNotesMigration}\n${bookingRescheduleMigration}\n${bookingListIndexesMigration}\n${bookingValueUsageMigration}`;
+  const sql = `${identityMigration}\n${catalogMigration}\n${bookingMigration}\n${platformMigration}\n${contentMigration}\n${accessMigration}\n${valueMigration}\n${promoMigration}\n${waitlistMigration}\n${bookingNotesMigration}\n${bookingRescheduleMigration}\n${bookingListIndexesMigration}\n${bookingValueUsageMigration}\n${bookingNotificationTypesMigration}`;
   const triggers = sql.match(/CREATE TRIGGER[\s\S]*?END;/g) ?? [];
   const statements = sql.replace(/CREATE TRIGGER[\s\S]*?END;/g, '')
     .split(';').map((statement) => statement.trim()).filter(Boolean).map((statement) => env.DB.prepare(statement));
@@ -122,7 +123,7 @@ describe('Studio Cener API foundation', () => {
     expect(artistOverviewResponse.status).toBe(200);
     expect(artistOverviewSchema.parse(await artistOverviewResponse.json())).toMatchObject({
       nextBooking: { id: creditBooking.id, serviceName: 'Snimanje' }, creditBalanceMinor: 5000,
-      activePackageCount: 1, packageMinutesRemaining: 150, unreadNotifications: 0, activeWaitlistEntries: 0,
+      activePackageCount: 1, packageMinutesRemaining: 150, unreadNotifications: 1, activeWaitlistEntries: 0,
     });
     const profileResponse = await exports.default.fetch(new Request('https://api.example.test/api/studios/value-studio/profile', {
       method: 'PUT', headers: { Cookie: artist.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Novi Artist' }),
@@ -146,6 +147,13 @@ describe('Studio Cener API foundation', () => {
     expect(cancelPackage.status).toBe(200);
     const afterPackageRefund = await exports.default.fetch(new Request('https://api.example.test/api/studios/value-studio/value/me', { headers: { Cookie: artist.cookie } }));
     expect(artistValueAccountSchema.parse(await afterPackageRefund.json()).packageBalances[0]?.remainingMinutes).toBe(150);
+    const unreadResponse = await exports.default.fetch(new Request('https://api.example.test/api/studios/value-studio/notifications/unread-count', { headers: { Cookie: artist.cookie } }));
+    expect(await unreadResponse.json()).toEqual({ unreadCount: 4 });
+    const readAllResponse = await exports.default.fetch(new Request('https://api.example.test/api/studios/value-studio/notifications/read-all', { method: 'PATCH', headers: { Cookie: artist.cookie } }));
+    expect(readAllResponse.status).toBe(200);
+    expect(await readAllResponse.json()).toEqual({ markedRead: 4 });
+    const unreadAfterReadAll = await exports.default.fetch(new Request('https://api.example.test/api/studios/value-studio/notifications/unread-count', { headers: { Cookie: artist.cookie } }));
+    expect(await unreadAfterReadAll.json()).toEqual({ unreadCount: 0 });
     const bookingLedger = await env.DB.prepare(`SELECT kind,COUNT(*) AS total FROM credit_ledger WHERE studio_id='value_studio' AND booking_id=?1 GROUP BY kind ORDER BY kind`).bind(creditBooking.id).all();
     expect(bookingLedger.results).toEqual([{ kind: 'refund', total: 1 }, { kind: 'use', total: 1 }]);
     await expect(env.DB.prepare('UPDATE credit_ledger SET reason=?1 WHERE studio_id=?2').bind('Promijenjeno', 'value_studio').run()).rejects.toThrow(/append-only/);
@@ -691,6 +699,10 @@ describe('Studio Cener API foundation', () => {
       'SELECT actor_user_id FROM booking_events WHERE booking_id=?1 AND event_type=\'completed\'',
     ).bind(managedBooking.id).first<{ actor_user_id: string }>();
     expect(completionEvent?.actor_user_id).toBe(user.id);
+    const completionNotification = await env.DB.prepare(
+      `SELECT type FROM notifications WHERE studio_id='studio_a' AND user_id=?1 AND entity_id=?2 ORDER BY created_at DESC LIMIT 1`,
+    ).bind(artistUser!.id, managedBooking.id).first<{ type: string }>();
+    expect(completionNotification?.type).toBe('booking_completed');
 
     const artistDetailResponse = await exports.default.fetch(new Request(
       `https://api.example.test/api/studios/studio-a/bookings/${managedBooking.id}`,

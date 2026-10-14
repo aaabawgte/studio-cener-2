@@ -1,4 +1,4 @@
-import { notificationSchema, type ApiErrorBody } from '@studio/contracts';
+import { notificationSchema, notificationUnreadCountSchema, type ApiErrorBody } from '@studio/contracts';
 import type { Context } from 'hono';
 import type { AuthBindings } from '../auth';
 import { resolveStudioAccess } from '../authorization/studio-access';
@@ -26,4 +26,23 @@ export async function markNotificationRead(context: ApiContext) {
   ).bind(Date.now(), access.value.studio.id, access.value.actor.userId, param(context, 'notificationId')).run();
   if (!result.meta.changes) return context.json<ApiErrorBody>({ code: 'NOTIFICATION_NOT_FOUND', message: 'Obavijest nije pronađena.' }, 404);
   return context.body(null, 204);
+}
+
+export async function getUnreadNotificationCount(context: ApiContext) {
+  const access = await resolveStudioAccess(context.env, context.req.raw, param(context, 'slug'));
+  if (!access.ok) return context.json(access.error.body, access.error.status);
+  const row = await context.env.DB.prepare(
+    `SELECT count(*) AS count FROM notifications WHERE studio_id=?1 AND user_id=?2 AND read_at IS NULL`,
+  ).bind(access.value.studio.id, access.value.actor.userId).first<{ count: number }>();
+  return context.json(notificationUnreadCountSchema.parse({ unreadCount: Number(row?.count ?? 0) }));
+}
+
+export async function markAllNotificationsRead(context: ApiContext) {
+  const access = await resolveStudioAccess(context.env, context.req.raw, param(context, 'slug'));
+  if (!access.ok) return context.json(access.error.body, access.error.status);
+  const now = Date.now();
+  const result = await context.env.DB.prepare(
+    `UPDATE notifications SET read_at=?1 WHERE studio_id=?2 AND user_id=?3 AND read_at IS NULL`,
+  ).bind(now, access.value.studio.id, access.value.actor.userId).run();
+  return context.json({ markedRead: result.meta.changes });
 }

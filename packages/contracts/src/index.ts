@@ -554,7 +554,7 @@ export type WaitlistCreate = z.infer<typeof waitlistCreateSchema>;
 
 export const notificationSchema = z.object({
   id: z.string().min(1),
-  type: z.enum(['waitlist_slot_available', 'booking_created', 'booking_cancelled', 'booking_rescheduled', 'system']),
+  type: z.enum(['waitlist_slot_available', 'booking_created', 'booking_cancelled', 'booking_rescheduled', 'booking_completed', 'booking_no_show', 'system']),
   title: z.string().min(1).max(150),
   body: z.string().min(1).max(1000),
   entityType: z.string().nullable(),
@@ -563,6 +563,8 @@ export const notificationSchema = z.object({
   createdAt: z.iso.datetime({ offset: true }),
 });
 export type Notification = z.infer<typeof notificationSchema>;
+export const notificationUnreadCountSchema = z.object({ unreadCount: z.number().int().min(0) });
+export type NotificationUnreadCount = z.infer<typeof notificationUnreadCountSchema>;
 
 export const analyticsRangeSchema = z.enum(['30d', '90d', '365d']);
 export type AnalyticsRange = z.infer<typeof analyticsRangeSchema>;

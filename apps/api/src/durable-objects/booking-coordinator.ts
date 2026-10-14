@@ -275,6 +275,12 @@ export class BookingCoordinator extends DurableObject<Env> {
              AND day_start_utc<=?6 AND day_end_utc>?6 AND status IN ('active','notified')`,
         ).bind(command.now, command.studioId, command.artistUserId, command.serviceId, command.resourceId, command.startAtUtc),
         this.env.DB.prepare(
+          `INSERT INTO notifications (id,studio_id,user_id,type,title,body,entity_type,entity_id,created_at)
+           VALUES (?1,?2,?3,'booking_created','Termin je potvrđen',?4,'booking',?5,?6)`,
+        ).bind(crypto.randomUUID(), command.studioId, command.artistUserId,
+          `Rezervacija za ${command.serviceName} je potvrđena. Termin provjerite u svojim rezervacijama.`,
+          command.bookingId, command.now),
+        this.env.DB.prepare(
           `INSERT INTO booking_events (id, studio_id, booking_id, actor_user_id, event_type, payload_json, created_at)
            VALUES (?1, ?2, ?3, ?4, 'created', ?5, ?6)`,
         ).bind(crypto.randomUUID(), command.studioId, command.bookingId, command.actorUserId, JSON.stringify({
@@ -397,6 +403,12 @@ export class BookingCoordinator extends DurableObject<Env> {
       ).bind(command.now, command.studioId, command.bookingId),
       this.env.DB.prepare(
         `INSERT INTO notifications (id,studio_id,user_id,type,title,body,entity_type,entity_id,created_at)
+         VALUES (?1,?2,?3,'booking_cancelled','Termin je otkazan',?4,'booking',?5,?6)`,
+      ).bind(crypto.randomUUID(), command.studioId, booking.artist_user_id,
+        `Termin za ${booking.service_name_snapshot} je otkazan.${booking.payment_method === 'none' ? '' : ' Potrošeni kredit ili minute su vraćeni.'}`,
+        booking.id, command.now),
+      this.env.DB.prepare(
+        `INSERT INTO notifications (id,studio_id,user_id,type,title,body,entity_type,entity_id,created_at)
          SELECT lower(hex(randomblob(16))),w.studio_id,w.user_id,'waitlist_slot_available','Oslobodio se termin',
            'Oslobodio se termin za ' || w.service_name_snapshot || ' na datum ' || w.desired_date || '. Rezervirajte ga dok je dostupan.',
            'waitlist_entry',w.id,?1
@@ -443,6 +455,16 @@ export class BookingCoordinator extends DurableObject<Env> {
          WHERE studio_id=?3 AND id=?4 AND status='confirmed'`,
       ).bind(command.status, command.now, command.studioId, command.bookingId),
       this.env.DB.prepare('DELETE FROM slot_claims WHERE studio_id=?1 AND booking_id=?2').bind(command.studioId, command.bookingId),
+      this.env.DB.prepare(
+        `INSERT INTO notifications (id,studio_id,user_id,type,title,body,entity_type,entity_id,created_at)
+         VALUES (?1,?2,?3,?4,?5,?6,'booking',?7,?8)`,
+      ).bind(crypto.randomUUID(), command.studioId, booking.artist_user_id,
+        command.status === 'completed' ? 'booking_completed' : 'booking_no_show',
+        command.status === 'completed' ? 'Termin je završen' : 'Zabilježen je nedolazak',
+        command.status === 'completed'
+          ? `Termin za ${booking.service_name_snapshot} označen je kao završen.`
+          : `Za termin ${booking.service_name_snapshot} zabilježeno je da niste došli.`,
+        booking.id, command.now),
       this.env.DB.prepare(
         `INSERT INTO booking_events (id,studio_id,booking_id,actor_user_id,event_type,payload_json,created_at)
          VALUES (?1,?2,?3,?4,?5,?6,?7)`,

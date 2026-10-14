@@ -85,13 +85,23 @@ export class ValueCoordinator extends DurableObject<Env> {
   }
 
   createBooking(command: BookingCommand): Promise<BookingCommandResult> {
-    return this.serialize(async () => await this.env.BOOKING_COORDINATOR
-      .getByName(`${command.studioId}:${command.resourceId}`).createBooking(command) as unknown as BookingCommandResult);
+    return this.serialize(async () => {
+      const result = await this.env.BOOKING_COORDINATOR
+        .getByName(`${command.studioId}:${command.resourceId}`).createBooking(command);
+      const value = JSON.parse(JSON.stringify(result)) as BookingCommandResult;
+      (result as unknown as { [Symbol.dispose](): void })[Symbol.dispose]();
+      return value;
+    });
   }
 
   cancelBooking(command: CancelBookingCommand): Promise<CancelBookingResult> {
-    return this.serialize(async () => await this.env.BOOKING_COORDINATOR
-      .getByName(`${command.studioId}:${command.resourceId}`).cancelBooking(command) as unknown as CancelBookingResult);
+    return this.serialize(async () => {
+      const result = await this.env.BOOKING_COORDINATOR
+        .getByName(`${command.studioId}:${command.resourceId}`).cancelBooking(command);
+      const value = JSON.parse(JSON.stringify(result)) as CancelBookingResult;
+      (result as unknown as { [Symbol.dispose](): void })[Symbol.dispose]();
+      return value;
+    });
   }
 
   private async grantPackageUnlocked(command: GrantPackageCommand): Promise<ValueMutationResult> {

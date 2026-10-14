@@ -60,7 +60,7 @@ import {
 } from './value/routes';
 import { createPromoCode, listPromoCodes, updatePromoCode, validatePromoCode } from './promos/routes';
 import { cancelWaitlistEntry, createWaitlistEntry, listOwnWaitlist, listStudioWaitlist } from './waitlist/routes';
-import { listNotifications, markNotificationRead } from './notifications/routes';
+import { getUnreadNotificationCount, listNotifications, markAllNotificationsRead, markNotificationRead } from './notifications/routes';
 import { getStudioAnalytics } from './analytics/routes';
 import { getArtistOverview, getStudioOverview } from './overview/routes';
 import { updateProfile } from './profile/routes';
@@ -166,6 +166,8 @@ app.get('/api/studios/:slug/waitlist/me', listOwnWaitlist);
 app.post('/api/studios/:slug/waitlist', createWaitlistEntry);
 app.delete('/api/studios/:slug/waitlist/:entryId', cancelWaitlistEntry);
 app.get('/api/studios/:slug/notifications', listNotifications);
+app.get('/api/studios/:slug/notifications/unread-count', getUnreadNotificationCount);
+app.patch('/api/studios/:slug/notifications/read-all', markAllNotificationsRead);
 app.patch('/api/studios/:slug/notifications/:notificationId/read', markNotificationRead);
 app.get('/api/studios/:slug/analytics', getStudioAnalytics);
 app.get('/api/studios/:slug/overview', getStudioOverview);

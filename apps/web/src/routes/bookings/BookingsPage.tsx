@@ -71,6 +71,7 @@ export function BookingsPage() {
     setCancelling(booking.id);
     try {
       await cancelBooking(ctx.studio.slug, booking.id);
+      window.dispatchEvent(new Event('studio-notifications-changed'));
       toast.success('Termin je otkazan.');
       result.reload();
     } catch (caught: unknown) {

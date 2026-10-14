@@ -30,11 +30,12 @@ export function BottomNav({ items, base, label }: { items: NavItem[]; base: stri
                 <>
                   <span
                     className={cn(
-                      'grid h-7 w-12 place-items-center rounded-full transition-[background-color,color] duration-300 ease-soft',
+                      'relative grid h-7 w-12 place-items-center rounded-full transition-[background-color,color] duration-300 ease-soft',
                       isActive ? 'bg-accent-soft text-accent-strong' : '',
                     )}
                   >
                     <Icon name={item.icon} size={21} strokeWidth={isActive ? 1.75 : 1.5} />
+                    {item.badge ? <span className="absolute top-0 right-0 min-w-4 rounded-full bg-accent px-1 text-[0.6rem] font-semibold leading-4 text-white" aria-label={`${item.badge} nepročitanih`}>{item.badge > 9 ? '9+' : item.badge}</span> : null}
                   </span>
                   <span className="max-w-full truncate">{item.shortLabel ?? item.label}</span>
                 </>

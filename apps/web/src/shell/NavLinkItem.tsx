@@ -24,6 +24,7 @@ export function NavLinkItem({ item, base, onNavigate }: { item: NavItem; base: s
             className={cn('shrink-0 transition-colors', isActive ? 'text-accent' : 'text-ink-subtle group-hover:text-ink-muted')}
           />
           <span className="truncate">{item.label}</span>
+          {item.badge ? <span className="ml-auto min-w-5 rounded-full bg-accent px-1.5 py-0.5 text-center text-[0.6875rem] font-medium leading-none text-white" aria-label={`${item.badge} nepročitanih`}>{item.badge > 99 ? '99+' : item.badge}</span> : null}
         </>
       )}
     </NavLink>
