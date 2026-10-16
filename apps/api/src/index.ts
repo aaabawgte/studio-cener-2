@@ -64,6 +64,7 @@ import { getUnreadNotificationCount, listNotifications, markAllNotificationsRead
 import { getStudioAnalytics } from './analytics/routes';
 import { getArtistOverview, getStudioOverview } from './overview/routes';
 import { updateProfile } from './profile/routes';
+import { authRateLimit, bookingRateLimit } from './security/rate-limit';
 
 type AppEnvironment = {
   Bindings: AuthBindings;
@@ -106,6 +107,7 @@ app.get('/api/health', async (context) => {
   return context.json(payload);
 });
 
+app.use('/api/auth/*', authRateLimit);
 app.all('/api/auth/*', (context) => createAuth(context.env).handler(context.req.raw));
 
 app.get('/api/studios/:slug/viewer-context', getStudioViewerContext);
@@ -136,8 +138,8 @@ app.get('/api/studios/:slug/availability-rules', listAvailabilityRules);
 app.put('/api/studios/:slug/availability-rules', replaceAvailabilityRules);
 app.get('/api/public/studios/:slug/booking-availability', getBookingAvailability);
 app.post('/api/studios/:slug/artist-membership', createArtistMembership);
-app.post('/api/studios/:slug/bookings', createBooking);
-app.post('/api/studios/:slug/bookings/managed', createManagedBooking);
+app.post('/api/studios/:slug/bookings', bookingRateLimit, createBooking);
+app.post('/api/studios/:slug/bookings/managed', bookingRateLimit, createManagedBooking);
 app.get('/api/studios/:slug/bookings', listBookings);
 app.get('/api/studios/:slug/booking-artists', listBookingArtists);
 app.get('/api/studios/:slug/bookings/:bookingId', getBookingDetail);

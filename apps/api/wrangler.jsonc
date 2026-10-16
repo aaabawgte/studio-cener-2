@@ -2,8 +2,9 @@
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "studio-cener-api",
   "main": "src/index.ts",
-  "compatibility_date": "2026-10-12",
+  "compatibility_date": "2026-10-16",
   "compatibility_flags": ["nodejs_compat"],
+  "upload_source_maps": true,
   "vars": {
     "ENVIRONMENT": "local",
     "AUTH_BASE_URL": "http://localhost:8787",
@@ -21,6 +22,18 @@
     {
       "binding": "MEDIA",
       "bucket_name": "studio-cener-media"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "AUTH_RATE_LIMITER",
+      "namespace_id": "2026101601",
+      "simple": { "limit": 10, "period": 60 }
+    },
+    {
+      "name": "BOOKING_RATE_LIMITER",
+      "namespace_id": "2026101602",
+      "simple": { "limit": 12, "period": 60 }
     }
   ],
   "durable_objects": {

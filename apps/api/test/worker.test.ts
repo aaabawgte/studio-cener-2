@@ -39,6 +39,47 @@ describe('Studio Cener API foundation', () => {
     });
   });
 
+  it('rate limits repeated authentication and booking creation attempts', async () => {
+    const authResponses: Response[] = [];
+    for (let attempt = 0; attempt < 11; attempt += 1) {
+      authResponses.push(await exports.default.fetch(new Request('https://api.example.test/api/auth/sign-in/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Origin: 'https://api.example.test' },
+        body: JSON.stringify({ email: 'rate-limit-target@example.test', password: 'incorrect-password' }),
+      })));
+    }
+    expect(authResponses.slice(0, 10).every((response) => response.status !== 429)).toBe(true);
+    expect(authResponses[10]?.status).toBe(429);
+    expect(authResponses[10]?.headers.get('retry-after')).toBe('60');
+    await expect(authResponses[10]?.json()).resolves.toMatchObject({ code: 'RATE_LIMITED' });
+
+    const signupResponses: Response[] = [];
+    for (let attempt = 0; attempt < 11; attempt += 1) {
+      signupResponses.push(await exports.default.fetch(new Request('https://api.example.test/api/auth/sign-up/email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json', Origin: 'https://api.example.test',
+          'CF-Connecting-IP': '203.0.113.40', 'User-Agent': 'studio-cener-rate-limit-test',
+        },
+        body: JSON.stringify({ name: `Signup Target ${attempt}`, email: `signup-rate-${attempt}@example.test`, password: 'signup-rate-correct-password' }),
+      })));
+    }
+    expect(signupResponses.slice(0, 10).every((response) => response.status === 200)).toBe(true);
+    expect(signupResponses[10]?.status).toBe(429);
+
+    const bookingResponses: Response[] = [];
+    for (let attempt = 0; attempt < 13; attempt += 1) {
+      bookingResponses.push(await exports.default.fetch(new Request('https://api.example.test/api/studios/rate-limit-studio/bookings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Idempotency-Key': `rate-limit-booking-${attempt}` },
+        body: '{}',
+      })));
+    }
+    expect(bookingResponses.slice(0, 12).every((response) => response.status === 401)).toBe(true);
+    expect(bookingResponses[12]?.status).toBe(429);
+    expect(bookingResponses[12]?.headers.get('retry-after')).toBe('60');
+  });
+
   it('initializes an isolated SQLite Durable Object', async () => {
     const stub = env.BOOKING_COORDINATOR.getByName('studio_test:resource_test');
 
